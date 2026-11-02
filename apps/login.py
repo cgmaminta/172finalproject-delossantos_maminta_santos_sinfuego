@@ -1,12 +1,15 @@
 import hashlib
 
+
 import dash_bootstrap_components as dbc
 from dash import dcc, html, callback_context
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
+
 from app import app
 from apps import dbconnect as db
+
 
 layout = dbc.Card([
             #dbc.CardImg(src="https://assets.newsweek.com/wp-content/uploads/2025/08/1905075-file-photo-smiling-dog.jpg?w=1600&quality=80&webp=1", top=True, style={"height": "20%", "width": "20%"},),
@@ -48,6 +51,8 @@ layout = dbc.Card([
 #)
 
 
+
+
 @app.callback(
     [
         Output('login_alert', 'is_open'),
@@ -59,10 +64,10 @@ layout = dbc.Card([
     ],
     [
         State('login_username', 'value'),
-        State('login_password', 'value'),   
+        State('login_password', 'value'),  
         State('sessionlogout', 'data'),
-        State('currentuserid', 'data'), 
-        State('url', 'pathname'), 
+        State('currentuserid', 'data'),
+        State('url', 'pathname'),
     ]
 )
 def loginprocess(loginbtn, sessionlogout_time,
@@ -70,46 +75,48 @@ def loginprocess(loginbtn, sessionlogout_time,
                  username, password,
                  sessionlogout, currentuserid,
                  pathname):
-    
+   
     ctx = callback_context
-    
+   
     if ctx.triggered:
         openalert = False
         eventid = ctx.triggered[0]['prop_id'].split('.')[0]
     else:
         raise PreventUpdate
-    
-    
+   
+   
     if eventid == 'login_loginbtn': # trigger for login process
-    
+   
         if loginbtn and username and password:
             sql = """SELECT user_id
             FROM users
-            WHERE 
+            WHERE
                 user_name = %s AND
                 user_password = %s AND
                 NOT user_delete_ind"""
-            
+           
             # we match the encrypted input to the encrypted password in the db
-            encrypt_string = lambda string: hashlib.sha256(string.encode('utf-8')).hexdigest() 
-            
+            encrypt_string = lambda string: hashlib.sha256(string.encode('utf-8')).hexdigest()
+           
             values = [username, encrypt_string(password)]
             cols = ['userid']
             df = db.getDataFromDB(sql, values, cols)
-            
+           
             if df.shape[0]: # if query returns rows
                 currentuserid = df['userid'][0]
             else:
                 currentuserid = -1
                 openalert = True
-                
+               
     elif eventid == 'sessionlogout' and pathname == '/logout': # reset the userid if logged out
         currentuserid = -1
-        
+       
     else:
         raise PreventUpdate
-    
+   
     return [openalert, currentuserid]
+
+
 
 
 @app.callback(
@@ -120,7 +127,7 @@ def loginprocess(loginbtn, sessionlogout_time,
         Input('currentuserid', 'modified_timestamp'),
     ],
     [
-        State('currentuserid', 'data'), 
+        State('currentuserid', 'data'),
     ]
 )
 def routelogin(logintime, userid):
@@ -133,3 +140,4 @@ def routelogin(logintime, userid):
     else:
         raise PreventUpdate
     return [url]
+
