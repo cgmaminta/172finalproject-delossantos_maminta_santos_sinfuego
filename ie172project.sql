@@ -153,3 +153,36 @@ ALTER TABLE student
 ALTER TABLE student
     ADD CONSTRAINT student_lrn_12_digits
     CHECK (student_lrn BETWEEN 100000000000 AND 999999999999);
+
+
+SELECT conrelid::regclass AS table_name, conname AS constraint_name
+FROM pg_constraint
+WHERE confrelid = 'student'::regclass
+  AND contype = 'f';
+
+DO $$
+DECLARE
+    r record;
+BEGIN
+    FOR r IN
+        SELECT c.conrelid::regclass AS tbl,
+               c.conname,
+               pg_get_constraintdef(c.oid) AS def
+        FROM pg_constraint c
+        WHERE c.confrelid = 'student'::regclass
+          AND c.contype = 'f'
+          AND pg_get_constraintdef(c.oid) NOT LIKE '%ON UPDATE%'
+    LOOP
+        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', r.tbl, r.conname);
+        EXECUTE format(
+            'ALTER TABLE %s ADD CONSTRAINT %I %s ON UPDATE CASCADE',
+            r.tbl, r.conname, r.def
+        );
+    END LOOP;
+END $$;
+SELECT conrelid::regclass AS table_name,
+       conname AS constraint_name,
+       CASE confupdtype WHEN 'c' THEN 'CASCADE' ELSE 'not cascade' END AS update_rule
+FROM pg_constraint
+WHERE confrelid = 'student'::regclass
+  AND contype = 'f';
