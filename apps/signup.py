@@ -52,7 +52,7 @@ layout = dbc.Card(
             ],
             className="mb-3",
         ),
-        dbc.Button('Sign up', color="seconday", id='singup_signupbtn'),
+        dbc.Button('Sign up', color="secondary", id='singup_signupbtn'),
         dbc.Modal(
             [
                 dbc.ModalHeader(dbc.ModalTitle("User Saved")),
