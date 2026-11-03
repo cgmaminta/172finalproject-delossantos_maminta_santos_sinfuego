@@ -7,6 +7,21 @@ CREATE TABLE student(
 	student_sex sex_enum,
 	student_address varchar(90)
 );
+
+''' alt if u dont have a database yet
+CREATE TABLE student (
+    student_lrn          BIGINT PRIMARY KEY
+                         CHECK (student_lrn BETWEEN 100000000000 AND 999999999999),
+    student_last_name    VARCHAR(70) NOT NULL,
+    student_first_name   VARCHAR(70) NOT NULL,
+    student_middle_name  VARCHAR(70),
+    student_age          NUMERIC(4,2),
+    student_sex          sex_enum,
+    student_address      VARCHAR(90),
+    student_delete_ind   BOOLEAN DEFAULT FALSE
+);
+'''
+
 CREATE TABLE teacher(
 	employee_id serial primary key not null,
 	teacher_name varchar(70) unique
@@ -72,3 +87,69 @@ CREATE TABLE users (
 	user_modified_on timestamp without time zone default now(),
     user_delete_ind boolean default false
 );
+
+-- ==========================================
+-- 1. CREATE STUDENT CLASS TABLE
+-- ==========================================
+
+CREATE TABLE student_class (
+    class_id SERIAL PRIMARY KEY,
+    grade_level INTEGER NOT NULL,
+    student_section VARCHAR(70) NOT NULL,
+    cycle_id INTEGER REFERENCES program_cycle(cycle_id),
+    employee_id INTEGER REFERENCES teacher(employee_id),
+    class_delete_ind BOOLEAN DEFAULT FALSE
+);
+
+
+-- ==========================================
+-- 2. ADD CLASS ID TO PROGRAM ENROLMENT
+-- ==========================================
+
+ALTER TABLE program_enrolment
+ADD COLUMN class_id INTEGER REFERENCES student_class(class_id);
+
+ALTER TABLE student_class
+ADD COLUMN class_archive_ind BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ============ LRN: serial -> BIGINT (no auto-numbering) ============
+ALTER TABLE student ALTER COLUMN student_lrn DROP DEFAULT;
+ALTER TABLE student ALTER COLUMN student_lrn TYPE BIGINT;
+DROP SEQUENCE IF EXISTS student_student_lrn_seq;
+
+-- The enrolment foreign key must match the new type
+ALTER TABLE program_enrolment ALTER COLUMN student_lrn TYPE BIGINT;
+
+-- ============ Names: three separate columns ============
+
+-- ---- Option A: existing rows are test data ----
+DELETE FROM program_enrolment;
+DELETE FROM student;
+
+ALTER TABLE student
+    DROP COLUMN student_name,
+    ADD COLUMN student_last_name   VARCHAR(70) NOT NULL,
+    ADD COLUMN student_first_name  VARCHAR(70) NOT NULL,
+    ADD COLUMN student_middle_name VARCHAR(70);
+
+-- ---- Option B: keep existing rows (use this INSTEAD of Option A) ----
+-- ALTER TABLE student
+--     ADD COLUMN student_last_name   VARCHAR(70),
+--     ADD COLUMN student_first_name  VARCHAR(70),
+--     ADD COLUMN student_middle_name VARCHAR(70);
+--
+-- UPDATE student
+-- SET student_last_name  = TRIM(SPLIT_PART(student_name, ',', 1)),
+--     student_first_name = TRIM(SPLIT_PART(student_name, ',', 2));
+--
+-- ALTER TABLE student
+--     ALTER COLUMN student_last_name  SET NOT NULL,
+--     ALTER COLUMN student_first_name SET NOT NULL;
+--
+-- ALTER TABLE student DROP COLUMN student_name;
+
+-- ============ Enforce a 12-digit LRN ============
+-- (Option B users: fix any rows with non-12-digit LRNs first)
+ALTER TABLE student
+    ADD CONSTRAINT student_lrn_12_digits
+    CHECK (student_lrn BETWEEN 100000000000 AND 999999999999);

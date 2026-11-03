@@ -1,4 +1,4 @@
-import dash_bootstrap_components as dbc
+''' import dash_bootstrap_components as dbc
 from dash import dcc, html, callback_context
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
@@ -366,3 +366,4 @@ def manage_enrolment(pathname, save_clicks, lrn, name, age, sex, address,
         )
 
     return [alert_text, alert_color, open_alert, table_content]
+    '''
