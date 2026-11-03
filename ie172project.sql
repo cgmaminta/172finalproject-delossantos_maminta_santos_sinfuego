@@ -8,7 +8,7 @@ CREATE TABLE student(
 	student_address varchar(90)
 );
 
-''' alt if u dont have a database yet
+
 CREATE TABLE student (
     student_lrn          BIGINT PRIMARY KEY
                          CHECK (student_lrn BETWEEN 100000000000 AND 999999999999),
@@ -20,7 +20,7 @@ CREATE TABLE student (
     student_address      VARCHAR(90),
     student_delete_ind   BOOLEAN DEFAULT FALSE
 );
-'''
+
 
 CREATE TABLE teacher(
 	employee_id serial primary key not null,

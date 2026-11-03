@@ -83,14 +83,21 @@ def displaypage(pathname, sessionlogout, userid):
         elif pathname == "/reports/report":
             returnlayout = report.layout
 
+        # Program Enrolment Management main page
         elif pathname == "/program_enrolment/program_enrolment_management":
             returnlayout = program_enrolment_management.layout
-        elif pathname == "/program_enrolment/program_enrolment_management_profile":
+
+        # Individual Program Cycle Profile page
+        # Example: /program_enrolment/program_enrolment_management_profile/1
+        elif pathname and pathname.startswith(
+            "/program_enrolment/program_enrolment_management_profile/"
+        ):
             returnlayout = program_enrolment_management_profile.layout
 
         # Class Profiles main page
         elif pathname == "/class_profiles/class_profiles_management":
             returnlayout = class_profiles_management.layout
+
         elif pathname == "/class_profiles/class_profiles_management_profile":
             returnlayout = class_profiles_management_profile.layout
 
@@ -101,11 +108,13 @@ def displaypage(pathname, sessionlogout, userid):
 
         elif pathname == "/daily_log/daily_log_management":
             returnlayout = daily_log_management.layout
+
         elif pathname == "/daily_log/daily_log_management_profile":
             returnlayout = daily_log_management_profile.layout
 
         elif pathname == "/meal_plans/meal_plans_management":
             returnlayout = meal_plans_management.layout
+
         elif pathname == "/meal_plans/meal_plans_management_profile":
             returnlayout = meal_plans_management_profile.layout
 
@@ -129,5 +138,4 @@ def displaypage(pathname, sessionlogout, userid):
 if __name__ == "__main__":
     webbrowser.open("http://127.0.0.1:8050/", new=0, autoraise=True)
     app.run(debug=False)
-
     
