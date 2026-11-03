@@ -1,4 +1,3 @@
-# Usual Dash dependencies
 import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html
@@ -16,7 +15,7 @@ navbar = dbc.Navbar(
             html.A(
                 dbc.Row(
                     [
-                        dbc.Col(dbc.NavbarBrand("IE 172 Project", className="ms-2")),
+                        dbc.Col(dbc.NavbarBrand("Feeding Program DBMS", className="ms-2")),
                     ],
                     align="center",
                     className='g-0 me-4'
@@ -27,13 +26,13 @@ navbar = dbc.Navbar(
             dbc.NavLink("Home", href="/home", style=navlink_style),
             dbc.NavLink("Program Enrolment", href="/program_enrolment/program_enrolment_management", style=navlink_style),
             dbc.NavLink("Daily Log", href="/daily_log/daily_log_management", style=navlink_style),
-            dbc.NavLink("Class Profiles", href="/class_profiles/class_profiles_management", style = navlink_style),
+            dbc.NavLink("Class Profiles", href="/class_profiles/class_profiles_management", style=navlink_style),
             dbc.NavLink("Meal Plans", href="/meal_plans/meal_plans_management", style=navlink_style),
             dbc.NavLink("Reports", href="/reports/report", style=navlink_style),
             dbc.NavLink("Logout", href="/logout", style=navlink_style),
-        ], className='m-0 justify-content-start'
-        
+        ],
+        className='m-0 justify-content-start'
     ),
     dark=True,
-    color='dark'
-)
+    className='app-navbar',
+)       
