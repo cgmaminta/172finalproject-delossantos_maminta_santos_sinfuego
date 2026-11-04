@@ -550,7 +550,7 @@ def manage_class_profiles(
 
             card_actions = [
                 dbc.Button(
-                    "View Class",
+                    "View Enrolled Students",
                     href=f"/student-details/{class_id}",
                     color="primary",
                     outline=True,
@@ -560,7 +560,7 @@ def manage_class_profiles(
 
             card_actions.append(
                 dbc.Button(
-                    "Edit",
+                    "Edit Class Details",
                     id={"type": "edit_class", "index": class_id},
                     color="info",
                     outline=True,

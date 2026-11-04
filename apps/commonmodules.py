@@ -29,10 +29,11 @@ navbar = dbc.Navbar(
             dbc.NavLink("Class Profiles", href="/class_profiles/class_profiles_management", style=navlink_style),
             dbc.NavLink("Meal Plans", href="/meal_plans/meal_plans_management", style=navlink_style),
             dbc.NavLink("Reports", href="/reports/report", style=navlink_style),
-            dbc.NavLink("Logout", href="/logout", style=navlink_style),
+            dbc.NavLink("Logout", href="/logout", style=navlink_style, className="navbar-logout ms-auto"),
         ],
+        fluid=True,
         className='m-0 justify-content-start'
     ),
     dark=True,
     className='app-navbar',
-)       
+)

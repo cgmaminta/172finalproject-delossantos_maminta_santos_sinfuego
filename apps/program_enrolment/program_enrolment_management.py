@@ -1,369 +1,216 @@
-''' import dash_bootstrap_components as dbc
-from dash import dcc, html, callback_context
+
+from datetime import date
+import pandas as pd
+import dash_bootstrap_components as dbc
+from dash import dcc, html, callback_context, no_update
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from app import app
 from apps import dbconnect as db
+from apps.class_profiles.class_profiles_management import get_triggered_component
 
-# =============================================================================
-# LAYOUT STRUCTURE
-# =============================================================================
-
-layout = html.Div(
-    [
-        # Header Section
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        html.H2("Program Enrolment Management", className="fw-bold text-primary"),
-                        html.P("Enroll students into program cycles and manage class sections.", className="text-muted"),
-                    ],
-                    width=8
-                ),
-                dbc.Col(
-                    [
-                        dbc.Button(
-                            "+ Enroll Student", 
-                            id="enroll_open_student_modal_btn", 
-                            color="success"
-                        ),
-                    ],
-                    width=4,
-                    className="text-end align-self-center"
-                )
-            ],
-            className="mb-4"
-        ),
-
-        # Alert banner for messages
-        dbc.Alert(id="enroll_alert", is_open=False, dismissable=True, className="mb-3"),
-
-        # Enrolled Students Table Card
-        dbc.Card(
-            [
-                dbc.CardHeader(html.H5("Enrolled Students Roster", className="m-0 fw-bold")),
-                dbc.CardBody(
-                    html.Div(id="enroll_students_table_container")
-                )
-            ],
-            className="shadow-sm"
-        ),
-
-        # ---------------------------------------------------------------------
-        # MODAL: ENROLL NEW STUDENT
-        # ---------------------------------------------------------------------
-        dbc.Modal(
-            [
-                dbc.ModalHeader(dbc.ModalTitle("Enroll Student to Program")),
-                dbc.ModalBody(
-                    [
-                        dbc.Form(
-                            [
-                                html.H6("Class & Academic Period Details", className="fw-bold text-secondary mb-2"),
-                                dbc.Row(
-                                    [
-                                        dbc.Col(
-                                            [
-                                                dbc.Label("Grade Level", className="fw-bold"),
-                                                dbc.Input(id="enroll_grade_level", type="number", min=1, max=6, placeholder="e.g. 1"),
-                                            ],
-                                            md=4
-                                        ),
-                                        dbc.Col(
-                                            [
-                                                dbc.Label("Student Section", className="fw-bold"),
-                                                dbc.Input(id="enroll_student_section", type="text", placeholder="e.g. Sampaguita"),
-                                            ],
-                                            md=8
-                                        ),
-                                    ],
-                                    className="mb-3"
-                                ),
-                                dbc.Row(
-                                    [
-                                        dbc.Col(
-                                            [
-                                                # School Year with label example note
-                                                dbc.Label("School Year", className="fw-bold"),
-                                                dbc.Input(id="enroll_school_year", type="text", placeholder="e.g. 2026-2027"),
-                                            ],
-                                            md=4
-                                        ),
-                                        dbc.Col(
-                                            [
-                                                # Quarter Dropdown
-                                                dbc.Label("Quarter", className="fw-bold"),
-                                                dbc.Select(
-                                                    id="enroll_quarter",
-                                                    options=[
-                                                        {"label": "1st Quarter", "value": "1st Quarter"},
-                                                        {"label": "2nd Quarter", "value": "2nd Quarter"},
-                                                        {"label": "3rd Quarter", "value": "3rd Quarter"},
-                                                        {"label": "4th Quarter", "value": "4th Quarter"},
-                                                    ],
-                                                    placeholder="Select Quarter"
-                                                ),
-                                            ],
-                                            md=4
-                                        ),
-                                        dbc.Col(
-                                            [
-                                                dbc.Label("Assigned Teacher", className="fw-bold"),
-                                                dcc.Dropdown(id="enroll_teacher_dropdown", placeholder="Select Teacher"),
-                                            ],
-                                            md=4
-                                        ),
-                                    ],
-                                    className="mb-3"
-                                ),
-                                html.Hr(),
-                                html.H6("Student Information", className="fw-bold text-secondary mb-2"),
-                                html.Div(
-                                    [
-                                        dbc.Label("Learner Reference Number (LRN)", className="fw-bold"),
-                                        dbc.Input(id="student_lrn", type="number", placeholder="Enter Student LRN"),
-                                    ],
-                                    className="mb-3"
-                                ),
-                                html.Div(
-                                    [
-                                        # Full Name with example in label
-                                        dbc.Label("Full Name", className="fw-bold"),
-                                        dbc.Input(id="student_name", type="text", placeholder="e.g., Juan B. Dela Cruz"),
-                                    ],
-                                    className="mb-3"
-                                ),
-                                dbc.Row(
-                                    [
-                                        dbc.Col(
-                                            [
-                                                dbc.Label("Age", className="fw-bold"),
-                                                dbc.Input(id="student_age", type="number", step="0.01", min=4, max=18, placeholder="Age"),
-                                            ],
-                                            md=6
-                                        ),
-                                        dbc.Col(
-                                            [
-                                                dbc.Label("Sex", className="fw-bold"),
-                                                dbc.Select(
-                                                    id="student_sex",
-                                                    options=[
-                                                        {"label": "Female", "value": "Female"},
-                                                        {"label": "Male", "value": "Male"}
-                                                    ],
-                                                    placeholder="Select Sex"
-                                                ),
-                                            ],
-                                            md=6
-                                        ),
-                                    ],
-                                    className="mb-3"
-                                ),
-                                html.Div(
-                                    [
-                                        dbc.Label("Address", className="fw-bold"),
-                                        dbc.Textarea(id="student_address", placeholder="Enter complete address"),
-                                    ],
-                                    className="mb-3"
-                                ),
-                            ]
-                        )
-                    ]
-                ),
-                dbc.ModalFooter(
-                    [
-                        dbc.Button("Cancel", id="student_modal_cancel_btn", color="secondary", outline=True),
-                        dbc.Button("Enroll Student", id="student_modal_save_btn", color="success"),
-                    ]
-                ),
-            ],
-            id="student_modal",
-            is_open=False,
-            size="lg"
-        ),
-    ]
-)
-
-# =============================================================================
-# CALLBACK 1: TOGGLE MODAL & LOAD TEACHERS
-# =============================================================================
-
-@app.callback(
-    [
-        Output("student_modal", "is_open"),
-        Output("enroll_teacher_dropdown", "options")
-    ],
-    [
-        Input("enroll_open_student_modal_btn", "n_clicks"),
-        Input("student_modal_cancel_btn", "n_clicks")
-    ],
-    [State("student_modal", "is_open")]
-)
-def toggle_modal_and_load_teachers(n_open, n_close, is_open):
-    ctx = callback_context
-    teacher_options = []
-
-    if ctx.triggered:
-        # Load Teachers
-        sql_teachers = "SELECT employee_id, teacher_name FROM teacher WHERE NOT teacher_delete_ind ORDER BY teacher_name"
-        df_teachers = db.getDataFromDB(sql_teachers, [], ['employee_id', 'teacher_name'])
-        if df_teachers.shape[0] > 0:
-            teacher_options = [{"label": row['teacher_name'], "value": row['employee_id']} for _, row in df_teachers.iterrows()]
-
-        return [not is_open, teacher_options]
-
-    return [is_open, teacher_options]
+PAGE_PATH = "/program_enrolment/program_enrolment_management"
+PROFILE_PATH = "/program_enrolment/program_enrolment_management_profile"
+QUARTERS = ["1st Quarter", "2nd Quarter", "3rd Quarter", "4th Quarter"]
 
 
-# =============================================================================
-# CALLBACK 2: SAVE ENROLMENT RECORD
-# =============================================================================
+def clean_text(value):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    value = str(value).strip()
+    return value or None
 
-@app.callback(
-    [
-        Output("enroll_alert", "children"),
-        Output("enroll_alert", "color"),
-        Output("enroll_alert", "is_open"),
-        Output("enroll_students_table_container", "children")
-    ],
-    [
-        Input("url", "pathname"),
-        Input("student_modal_save_btn", "n_clicks")
-    ],
-    [
-        State("student_lrn", "value"),
-        State("student_name", "value"),
-        State("student_age", "value"),
-        State("student_sex", "value"),
-        State("student_address", "value"),
-        State("enroll_grade_level", "value"),
-        State("enroll_student_section", "value"),
-        State("enroll_school_year", "value"),
-        State("enroll_quarter", "value"),
-        State("enroll_teacher_dropdown", "value"),
-    ]
-)
-def manage_enrolment(pathname, save_clicks, lrn, name, age, sex, address,
-                     grade_level, section, school_year, quarter, teacher_id):
+
+def cycle_label(school_year, quarter):
+    return f"{school_year.strip()} - {quarter}"
+
+
+layout = html.Div([
+    dcc.Store(id="pem_refresh", data=0),
+
+    html.H2("Program Enrolment Management", 
+            className="fw-bold text-primary"),
+
+    html.P("Create and manage quarterly School Feeding Program cycles.",
+           className="text-muted"),
+
+    dbc.Alert(id="pem_page_alert", is_open=False, dismissable=True, duration=5000),
+
+    dbc.Row(
+        [
+        dbc.Col(
+            dbc.Button("+ Create Program Cycle", id="pem_add_cycle_btn",
+                           color="success",
+                           n_clicks=0), 
+                           width="auto")
+    ], 
+    className="mb-3"),
+
     
-    ctx = callback_context
-    alert_text = ""
-    alert_color = "success"
-    open_alert = False
+    dbc.Alert([
+        html.Strong("Select a program cycle"),
+        html.Div("Choose a cycle below to view its active classes and enrolled students.")
+    ], 
+    color="light", 
+    className="mb-3"),
 
-    if ctx.triggered:
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    html.Div(id="pem_cycle_list"),
 
-        if trigger_id == "student_modal_save_btn" and save_clicks:
-            if lrn and name and grade_level and section:
-                # 1. Check or insert program cycle based on SY and Quarter
-                semester_label = f"{school_year} - {quarter}" if school_year and quarter else (school_year or quarter or "N/A")
-                
-                sql_check_cycle = "SELECT cycle_id FROM program_cycle WHERE semester = %s"
-                df_cycle = db.getDataFromDB(sql_check_cycle, [semester_label], ['cycle_id'])
+    dbc.Modal(
+        [
+        dbc.ModalHeader(
+            dbc.ModalTitle("Create Program Cycle")
+            ),
+        dbc.ModalBody(
+            [
+            dbc.Alert(id="pem_cycle_modal_alert", 
+                      is_open=False, 
+                      color="warning"),
 
-                if df_cycle.shape[0] > 0:
-                    cycle_id = df_cycle['cycle_id'][0]
-                else:
-                    sql_insert_cycle = "INSERT INTO program_cycle (semester) VALUES (%s) RETURNING cycle_id"
-                    # If dbconnect supports returning or standard modifyDB execution:
-                    db.modifyDB(sql_insert_cycle, [semester_label])
-                    df_new_cycle = db.getDataFromDB(sql_check_cycle, [semester_label], ['cycle_id'])
-                    cycle_id = df_new_cycle['cycle_id'][0] if df_new_cycle.shape[0] > 0 else None
+            dbc.Label("School Year", 
+                      className="fw-bold"),
 
-                # 2. Insert or check existing student
-                sql_check_student = "SELECT student_LRN FROM student WHERE student_LRN = %s"
-                df_student_check = db.getDataFromDB(sql_check_student, [lrn], ['student_LRN'])
+            dbc.Input(id="pem_school_year", 
+                      placeholder="e.g. 2026-2027",
+                      maxLength=30, 
+                      className="mb-3"),
 
-                if df_student_check.shape[0] == 0:
-                    sql_insert_student = """
-                        INSERT INTO student (student_LRN, student_name, student_age, student_sex, student_address)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """
-                    db.modifyDB(sql_insert_student, [lrn, name, age, sex, address])
+            dbc.Label("Quarter", 
+                      className="fw-bold"),
 
-                # 3. Insert into program_enrolment (without priority_level)
-                sql_insert_enrolment = """
-                    INSERT INTO program_enrolment 
-                    (grade_level, student_section, employee_id, cycle_id, student_LRN)
-                    VALUES (%s, %s, %s, %s, %s)
-                """
-                db.modifyDB(sql_insert_enrolment, [grade_level, section, teacher_id, cycle_id, lrn])
-
-                alert_text = f"Student {name} (LRN: {lrn}) enrolled successfully!"
-                open_alert = True
-            else:
-                alert_text = "Please complete the required fields: LRN, Full Name, Grade Level, and Section."
-                alert_color = "warning"
-                open_alert = True
-
-    # Render Table of Enrolled Students
-    sql_get_enrolled = """
-        SELECT 
-            pe.enrolment_id,
-            s.student_LRN,
-            s.student_name,
-            s.student_age,
-            s.student_sex,
-            pe.grade_level,
-            pe.student_section,
-            pc.semester AS academic_period,
-            t.teacher_name
-        FROM program_enrolment pe
-        JOIN student s ON pe.student_LRN = s.student_LRN
-        LEFT JOIN program_cycle pc ON pe.cycle_id = pc.cycle_id
-        LEFT JOIN teacher t ON pe.employee_id = t.employee_id
-        WHERE pe.enrolment_status = true AND NOT s.student_delete_ind
-        ORDER BY pe.grade_level, pe.student_section, s.student_name
-    """
-    cols = ['enrolment_id', 'lrn', 'name', 'age', 'sex', 'grade', 'section', 'period', 'teacher']
-    df_enrolled = db.getDataFromDB(sql_get_enrolled, [], cols)
-
-    if df_enrolled.shape[0] == 0:
-        table_content = dbc.Alert("No students currently enrolled.", color="info", className="m-0")
-    else:
-        table_header = [
-            html.Thead(
-                html.Tr(
-                    [
-                        html.Th("Enrolment ID"),
-                        html.Th("LRN"),
-                        html.Th("Student Name"),
-                        html.Th("Age"),
-                        html.Th("Sex"),
-                        html.Th("Grade & Section"),
-                        html.Th("School Year & Quarter"),
-                        html.Th("Teacher"),
-                    ]
-                )
-            )
+            dbc.Select(id="pem_quarter",
+                       options=[{"label": q, "value": q} for q in QUARTERS],
+                       placeholder="Select quarter"),
         ]
-
-        table_rows = [
-            html.Tr(
-                [
-                    html.Td(row['enrolment_id']),
-                    html.Td(row['lrn'], className="fw-bold"),
-                    html.Td(row['name']),
-                    html.Td(row['age']),
-                    html.Td(row['sex']),
-                    html.Td(f"Grade {row['grade']} - {row['section']}"),
-                    html.Td(row['period'] if row['period'] else "N/A"),
-                    html.Td(row['teacher'] if row['teacher'] else "N/A"),
-                ]
-            )
-            for _, row in df_enrolled.iterrows()
+        ),
+        dbc.ModalFooter(
+            [
+            dbc.Button("Cancel", id="pem_cycle_cancel", color="secondary", outline=True),
+            dbc.Button("Create Cycle", 
+                       id="pem_cycle_save", 
+                       color="success"),
         ]
+        ),
+    ], id="pem_cycle_modal", is_open=False, centered=True),
+])
 
-        table_content = dbc.Table(
-            table_header + [html.Tbody(table_rows)], 
-            striped=True, 
-            bordered=True, 
-            hover=True, 
-            responsive=True
+
+@app.callback(
+    [
+        Output("pem_cycle_modal", "is_open"),
+        Output("pem_cycle_modal_alert", "children"),
+        Output("pem_cycle_modal_alert", "is_open"),
+        Output("pem_school_year", "value"),
+        Output("pem_quarter", "value"),
+        Output("pem_refresh", "data"),
+        Output("pem_page_alert", "children"),
+        Output("pem_page_alert", "color"),
+        Output("pem_page_alert", "is_open")
+        ],
+
+    [
+        Input("pem_add_cycle_btn", "n_clicks"),
+        Input("pem_cycle_cancel", "n_clicks"),
+        Input("pem_cycle_save", "n_clicks")
+        ],
+
+    [
+        State("pem_school_year", "value"), 
+        State("pem_quarter", "value"),
+        State("pem_refresh", "data")
+        ],
+
+    prevent_initial_call=True,
+)
+
+def manage_cycle_modal(_add, _cancel, _save, school_year, quarter, refresh):
+    trigger = get_triggered_component()
+
+    if trigger == "pem_add_cycle_btn":
+        return True, "", False, None, None, no_update, no_update, no_update, no_update
+    
+    if trigger == "pem_cycle_cancel":
+        return False, "", False, no_update, no_update, no_update, no_update, no_update, no_update
+    
+    if trigger != "pem_cycle_save":
+        raise PreventUpdate
+    if not school_year or not school_year.strip() or not quarter:
+        return True, "Enter a school year and select a quarter.", True, no_update, no_update, no_update, no_update, no_update, no_update
+
+    label = cycle_label(school_year, quarter)
+
+    try:
+        existing = db.getDataFromDB(
+            "SELECT cycle_id FROM program_cycle WHERE LOWER(BTRIM(semester)) = LOWER(BTRIM(%s)) LIMIT 1",
+            [label], ["cycle_id"])
+        
+        if existing is not None and not existing.empty:
+            return True, "That program cycle already exists.", True, no_update, no_update, no_update, no_update, no_update, no_update
+        db.modifyDB("INSERT INTO program_cycle (semester) VALUES (%s)", [label])
+        return False, "", False, None, None, (refresh or 0) + 1, f"{label} created successfully.", "success", True
+    
+    except Exception as exc:
+        return True, f"Unable to create program cycle: {exc}", True, no_update, no_update, no_update, no_update, no_update, no_update
+
+
+@app.callback(
+        
+    Output("pem_cycle_list", "children"),
+
+    [
+        Input("url", "pathname"), 
+        Input("pem_refresh", "data")
+        ],
+)
+def render_cycles(pathname, _refresh):
+    if not pathname or pathname.rstrip("/") != PAGE_PATH.rstrip("/"):
+        raise PreventUpdate
+    df = db.getDataFromDB(
+        "SELECT cycle_id, semester FROM program_cycle ORDER BY cycle_id DESC",
+        [], ["cycle_id", "semester"])
+    if df is None or df.empty:
+        return dbc.Alert("No program cycles yet. Create a cycle to get started.", color="info")
+
+    cards = []
+    for _, row in df.iterrows():
+        cid = int(row["cycle_id"])
+
+        label = clean_text(row["semester"]) or f"Program Cycle {cid}"
+
+        count_df = db.getDataFromDB(
+            """SELECT COUNT(*) AS class_count FROM student_class
+               WHERE cycle_id = %s
+                 AND COALESCE(class_delete_ind, FALSE) = FALSE
+                 AND COALESCE(class_archive_ind, FALSE) = FALSE""",
+            [cid], ["class_count"])
+        
+        count = int(count_df.iloc[0]["class_count"]) if count_df is not None and not count_df.empty else 0
+
+        cards.append(
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody(
+                        [
+                            html.H5(label, className="fw-bold"),
+                            html.P(f"{count} active class{'es' if count != 1 else ''}",
+                                   className="text-muted mb-3"),
+                                   
+                                   dbc.Button("View Active Classes", href=f"{PROFILE_PATH}/{cid}",
+                                                color="primary", 
+                                                outline=True, 
+                                                className="w-100"),
+
+        ]
+        ), 
+        className="h-100 shadow-sm"), 
+        md=4, 
+        className="mb-3")
         )
 
-    return [alert_text, alert_color, open_alert, table_content]
-    '''
+    return dbc.Row(cards)

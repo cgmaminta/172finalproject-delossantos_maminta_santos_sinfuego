@@ -15,7 +15,19 @@
   background-color: var(--midnight-green) !important;
 }
 
-
+/*navbar logout button*/
+.navbar-logout {
+  background-color: var(--dark-green);
+  color: var(--beige) !important;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.3rem 1.2rem;
+}
+.navbar-logout:hover {
+  background-color: var(--beige);
+  border-color: var(--beige);
+  color: var(--dark-green) !important;
+}
 
 /*app-wide design*/
 body {
