@@ -1,39 +1,35 @@
-import dash
 import dash_bootstrap_components as dbc
-from dash import dcc, html
-from dash.exceptions import PreventUpdate
+from dash import html
 
-# Let us import the app object in case we need to define
-# callbacks here
-from app import app
 
-navlink_style = {'color': '#fff', 'margin-right': '1.5em'}
-
-navbar = dbc.Navbar(
-    dbc.Container(
+def nav_link(label, icon, href, extra=""):
+    return dbc.NavLink(
         [
-            html.A(
-                dbc.Row(
-                    [
-                        dbc.Col(dbc.NavbarBrand("Feeding Program DBMS", className="ms-2")),
-                    ],
-                    align="center",
-                    className='g-0 me-4'
-                ),
-                href="/home",
-                style={'textDecoration': 'none'}
-            ),
-            dbc.NavLink("Home", href="/home", style=navlink_style),
-            dbc.NavLink("Program Enrolment", href="/program_enrolment/program_enrolment_management", style=navlink_style),
-            dbc.NavLink("Daily Log", href="/daily_log/daily_log_management", style=navlink_style),
-            dbc.NavLink("Class Profiles", href="/class_profiles/class_profiles_management", style=navlink_style),
-            dbc.NavLink("Meal Plans", href="/meal_plans/meal_plans_management", style=navlink_style),
-            dbc.NavLink("Reports", href="/reports/report", style=navlink_style),
-            dbc.NavLink("Logout", href="/logout", style=navlink_style, className="navbar-logout ms-auto"),
+            html.I(className=f"bi bi-{icon} sidebar-icon"),
+            html.Span(label, className="sidebar-label"),
         ],
-        fluid=True,
-        className='m-0 justify-content-start'
-    ),
-    dark=True,
-    className='app-navbar',
+        href=href,
+        className=f"sidebar-link {extra}".strip(),
+    )
+
+
+navbar = html.Div(
+    [
+        html.Div(
+            [
+                html.Span(html.I(className="bi bi-list"), className="sidebar-toggle"),
+                html.Span("Feeding Program DBMS", className="sidebar-brand"),
+            ],
+            className="sidebar-header",
+        ),
+        nav_link("Home", "house-fill", "/home"),
+        nav_link("Program Enrolment", "card-checklist",
+                 "/program_enrolment/program_enrolment_management"),
+        nav_link("Daily Log", "calendar-check", "/daily_log/daily_log_management"),
+        nav_link("Class Profiles", "people", "/class_profiles/class_profiles_management"),
+        nav_link("Meal Plans", "basket", "/meal_plans/meal_plans_management"),
+        nav_link("Reports", "bar-chart-line", "/reports/report"),
+        nav_link("Logout", "box-arrow-right", "/logout", extra="sidebar-logout"),
+    ],
+    className="app-sidebar",
 )
