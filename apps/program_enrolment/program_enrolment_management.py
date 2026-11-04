@@ -44,13 +44,26 @@ layout = html.Div([
 
     dbc.Row(
         [
-        dbc.Col(
-            dbc.Button("+ Create Program Cycle", id="pem_add_cycle_btn",
-                           color="success",
-                           n_clicks=0), 
-                           width="auto")
-    ], 
-    className="mb-3"),
+            dbc.Col(
+                dbc.Button(
+                    "+ Create Program Cycle",
+                    id="pem_add_cycle_btn",
+                    color="success",
+                    n_clicks=0
+                ),
+                width="auto"
+            ),
+
+            dbc.Col(
+                html.Div(
+                    id="pem_current_cycle",
+                    className="text-muted fw-semibold text-end"
+                ),
+                className="d-flex align-items-center justify-content-end"
+            )
+        ],
+        className="mb-3 align-items-center"
+    ),
 
     
     dbc.Alert([
@@ -160,57 +173,97 @@ def manage_cycle_modal(_add, _cancel, _save, school_year, quarter, refresh):
 
 
 @app.callback(
-        
-    Output("pem_cycle_list", "children"),
+    [
+        Output("pem_cycle_list", "children"),
+        Output("pem_current_cycle", "children")
+    ],
 
     [
         Input("url", "pathname"), 
         Input("pem_refresh", "data")
-        ],
+    ],
 )
 def render_cycles(pathname, _refresh):
+
     if not pathname or pathname.rstrip("/") != PAGE_PATH.rstrip("/"):
         raise PreventUpdate
+
     df = db.getDataFromDB(
-        "SELECT cycle_id, semester FROM program_cycle ORDER BY cycle_id DESC",
-        [], ["cycle_id", "semester"])
+        """
+        SELECT cycle_id, semester
+        FROM program_cycle
+        ORDER BY cycle_id DESC
+        """,
+        [],
+        ["cycle_id", "semester"]
+    )
+
     if df is None or df.empty:
-        return dbc.Alert("No program cycles yet. Create a cycle to get started.", color="info")
+        return (
+            dbc.Alert(
+                "No program cycles yet. Create a cycle to get started.",
+                color="info"
+            ),
+            "Current Cycle: None"
+        )
+
+    # Most recently created cycle
+    current_cycle = clean_text(df.iloc[0]["semester"]) or "Not set"
+
+    current_label = html.Span([
+        "Current Cycle: ",
+        html.Span(current_cycle, className="text-primary")
+    ])
 
     cards = []
-    for _, row in df.iterrows():
-        cid = int(row["cycle_id"])
 
+    for _, row in df.iterrows():
+
+        cid = int(row["cycle_id"])
         label = clean_text(row["semester"]) or f"Program Cycle {cid}"
 
         count_df = db.getDataFromDB(
-            """SELECT COUNT(*) AS class_count FROM student_class
-               WHERE cycle_id = %s
-                 AND COALESCE(class_delete_ind, FALSE) = FALSE
-                 AND COALESCE(class_archive_ind, FALSE) = FALSE""",
-            [cid], ["class_count"])
-        
-        count = int(count_df.iloc[0]["class_count"]) if count_df is not None and not count_df.empty else 0
+            """
+            SELECT COUNT(*) AS class_count
+            FROM student_class
+            WHERE cycle_id = %s
+              AND COALESCE(class_delete_ind, FALSE) = FALSE
+              AND COALESCE(class_archive_ind, FALSE) = FALSE
+            """,
+            [cid],
+            ["class_count"]
+        )
+
+        count = (
+            int(count_df.iloc[0]["class_count"])
+            if count_df is not None and not count_df.empty
+            else 0
+        )
 
         cards.append(
             dbc.Col(
                 dbc.Card(
-                    dbc.CardBody(
-                        [
-                            html.H5(label, className="fw-bold"),
-                            html.P(f"{count} active class{'es' if count != 1 else ''}",
-                                   className="text-muted mb-3"),
-                                   
-                                   dbc.Button("View Active Classes", href=f"{PROFILE_PATH}/{cid}",
-                                                color="primary", 
-                                                outline=True, 
-                                                className="w-100"),
+                    dbc.CardBody([
+                        html.H5(label, className="fw-bold"),
 
-        ]
-        ), 
-        className="h-100 shadow-sm"), 
-        md=4, 
-        className="mb-3")
+                        html.P(
+                            f"{count} active class{'es' if count != 1 else ''}",
+                            className="text-muted mb-3"
+                        ),
+
+                        dbc.Button(
+                            "View Active Classes",
+                            href=f"{PROFILE_PATH}/{cid}",
+                            color="primary",
+                            outline=True,
+                            className="w-100"
+                        )
+                    ]),
+                    className="h-100 shadow-sm"
+                ),
+                md=4,
+                className="mb-3"
+            )
         )
 
-    return dbc.Row(cards)
+    return dbc.Row(cards), current_label

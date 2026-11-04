@@ -533,8 +533,19 @@ def health_modal(_open, _cancel, _save, pathname, current_lrn, record_date,
                 no_update, no_update, no_update, no_update, no_update, no_update,
                 no_update, no_update, no_update, no_update, no_update, no_update)
 
-    if isinstance(trigger, dict) and trigger.get("type") == "pemp_health_open" and _open:
-        
+    if isinstance(trigger, dict) and trigger.get("type") == "pemp_health_open":
+
+        triggered_value = (
+            callback_context.triggered[0].get("value")
+            if callback_context.triggered
+            else None
+        )
+
+        # Prevent the modal from opening when Dash
+        # merely detects newly generated health buttons.
+        if not triggered_value or triggered_value <= 0:
+            raise PreventUpdate      
+          
         lrn = int(trigger["index"])
         
         student = db.getDataFromDB(
