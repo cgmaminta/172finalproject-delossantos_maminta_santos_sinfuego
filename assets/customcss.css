@@ -3,19 +3,93 @@
   --dark-green: #0A3323;
   --moss-green: #839958;
   --beige: #F7F4D5;
-  --rosy-brown: #D3968C;
+  --rosy-brown: #f8d1cb;
   --midnight-green: #105666;
 
   --bs-body-color: var(--dark-green);
   --bs-card-color: var(--dark-green);
 }
 .page-header {
-  color: var(--dark-green);
+  color: var(--moss-green);
   font-family: Helvetica, Arial, sans-serif;
-  font-weight: 400;
+  font-weight: 650;
   font-size: 1.5rem;
-  margin-top: 0;
+  margin-top: 0.5rem;
   margin-bottom: 1.5rem;
+}
+
+/* ===== Login page ===== */
+.login-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 3rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background-color: #fff;
+  border: 1px solid rgba(10, 51, 35, 0.15);
+  border-radius: 16px;
+}
+
+.login-card .card-body {
+  padding: 2rem 2rem 1.75rem;
+}
+
+.login-title {
+  text-align: center;
+  color: var(--dark-green);
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.login-subtitle {
+  text-align: center;
+  color: var(--moss-green);
+  margin-bottom: 1.5rem;
+}
+
+.login-alert {
+  text-align: center;
+}
+
+.login-label {
+  color: var(--dark-green);
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.login-eye {
+  border: 1px solid #ced4da;
+  background-color: #fff;
+  color: var(--dark-green);
+}
+.login-eye:hover {
+  background-color: var(--beige);
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0 1rem;
+}
+.login-rule {
+  flex-grow: 1;
+  margin: 0;
+  opacity: 0.25;
+}
+.login-divider-text {
+  color: var(--moss-green);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+/* Hide the sidebar offset on the login page */
+body:has(.login-wrap) #page_content {
+  margin-left: 0 !important;
 }
   
 /*app-wide design*/
@@ -79,6 +153,7 @@ body {
   color: var(--beige);
   padding: 0.4rem 0.6rem;
   flex-shrink: 0;
+  margin-left: -0.2rem;
 }
 
 .sidebar-toggle i {
@@ -109,7 +184,7 @@ body {
   font-size: 0.95rem;
 }
 .sidebar-link:hover {
-  background-color: rgba(16, 86, 102, 0.07);
+  background-color: rgba(16, 86, 102, 0.237);
 }
 .sidebar-link.active {
   background-color: rgba(16, 86, 102, 0.15);
