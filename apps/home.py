@@ -7,6 +7,11 @@ from apps.dbconnect import getDataFromDB
 
 layout = html.Div(
     [
+        html.Div(
+            "Feeding Program Database Management System",
+            className="page-header",
+        ),
+
         dbc.Row(
             [
                 dbc.Col(
@@ -51,7 +56,7 @@ layout = html.Div(
         html.P('Need help? Contact the app owner.', className='fst-italic',
                style={'opacity': 0.7}),
     ],
-    className='p-4',
+    className='px-4 pb-4',
 )
 
 

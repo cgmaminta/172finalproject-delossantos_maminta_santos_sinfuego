@@ -3,32 +3,95 @@
   --dark-green: #0A3323;
   --moss-green: #839958;
   --beige: #F7F4D5;
-  --rosy-brown: #D3968C;
+  --rosy-brown: #f8d1cb;
   --midnight-green: #105666;
 
   --bs-body-color: var(--dark-green);
   --bs-card-color: var(--dark-green);
 }
-
-.app-navbar,
-.navbar.app-navbar.bg-primary {
-  background-color: var(--midnight-green) !important;
+.page-header {
+  color: var(--moss-green);
+  font-family: Helvetica, Arial, sans-serif;
+  font-weight: 650;
+  font-size: 1.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 1.5rem;
 }
 
-/*navbar logout button*/
-.navbar-logout {
-  background-color: var(--dark-green);
-  color: var(--beige) !important;
+/* ===== Login page ===== */
+.login-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 3rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background-color: #fff;
+  border: 1px solid rgba(10, 51, 35, 0.15);
+  border-radius: 16px;
+}
+
+.login-card .card-body {
+  padding: 2rem 2rem 1.75rem;
+}
+
+.login-title {
+  text-align: center;
+  color: var(--dark-green);
   font-weight: 700;
-  border-radius: 999px;
-  padding: 0.3rem 1.2rem;
-}
-.navbar-logout:hover {
-  background-color: var(--beige);
-  border-color: var(--beige);
-  color: var(--dark-green) !important;
+  margin-bottom: 0.25rem;
 }
 
+.login-subtitle {
+  text-align: center;
+  color: var(--moss-green);
+  margin-bottom: 1.5rem;
+}
+
+.login-alert {
+  text-align: center;
+}
+
+.login-label {
+  color: var(--dark-green);
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.login-eye {
+  border: 1px solid #ced4da;
+  background-color: #fff;
+  color: var(--dark-green);
+}
+.login-eye:hover {
+  background-color: var(--beige);
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0 1rem;
+}
+.login-rule {
+  flex-grow: 1;
+  margin: 0;
+  opacity: 0.25;
+}
+.login-divider-text {
+  color: var(--moss-green);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+/* Hide the sidebar offset on the login page */
+body:has(.login-wrap) #page_content {
+  margin-left: 0 !important;
+}
+  
 /*app-wide design*/
 body {
   background-color: var(--beige);
@@ -36,6 +99,148 @@ body {
   font-family: Helvetica, Arial, sans-serif;
 }
 
+
+/*sidebar: icons only, expands on hover*/
+.app-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 72px;
+  background-color: var(--moss-green);
+  border-right: 1px solid #e3e8ef;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+  z-index: 1000;
+  transition: width 0.2s ease, box-shadow 0.2s ease;
+}
+.app-sidebar:hover {
+  width: 256px;
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 232px;              /* expanded sidebar width minus its padding */
+  padding: 0.5rem 0.5rem 1rem;
+  flex-shrink: 0;
+}
+
+.sidebar-brand {
+  flex: 0 0 160px;           /* fixed width, so wrapping never changes */
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--beige);
+  white-space: normal;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.sidebar-toggle,
+.sidebar-toggle:hover,
+.sidebar-toggle:focus,
+.sidebar-toggle:active {
+  background: none;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  color: var(--beige);
+  padding: 0.4rem 0.6rem;
+  flex-shrink: 0;
+  margin-left: -0.2rem;
+}
+
+.sidebar-toggle i {
+  font-size: 1.6rem;
+  -webkit-text-stroke: 1px currentColor;
+}
+
+.sidebar-label {
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.app-sidebar:hover .sidebar-brand,
+.app-sidebar:hover .sidebar-label {
+  opacity: 1;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 999px;
+  color: var(--beige) !important;
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+.sidebar-link:hover {
+  background-color: rgba(16, 86, 102, 0.237);
+}
+.sidebar-link.active {
+  background-color: rgba(16, 86, 102, 0.15);
+  font-weight: 600;
+}
+
+.sidebar-icon {
+  font-size: 1.2rem;
+  width: 1.5rem;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--beige);
+}
+
+/* Logout pinned to the bottom, styled as the dark green pill */
+.app-sidebar .sidebar-logout {
+  margin-top: auto;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+  background-color: var(--dark-green);
+  color: var(--beige) !important;
+  font-weight: 700;
+}
+
+/* Collapsed: center only the icon inside the pill */
+.app-sidebar:not(:hover) .sidebar-logout {
+  padding: 0.6rem 0;
+  gap: 0;
+}
+.app-sidebar:not(:hover) .sidebar-logout .sidebar-label {
+  display: none;
+}
+
+/* Expanded: restore the normal padding and label */
+.app-sidebar:hover .sidebar-logout {
+  padding: 0.6rem 0.9rem;
+  gap: 1rem;
+}
+
+.app-sidebar .sidebar-logout .sidebar-icon {
+  color: var(--beige);
+}
+.app-sidebar .sidebar-logout:hover {
+  background-color: var(--beige);
+  color: var(--dark-green) !important;
+}
+.app-sidebar .sidebar-logout:hover .sidebar-icon {
+  color: var(--dark-green);
+}
+
+/* Page content keeps room for the collapsed rail.
+   The expanded sidebar overlays the page instead of pushing it. */
+#page_content {
+  margin-left: 88px !important;
+}
 
 /*titles and text that use bootstrap's text-primary*/
 .text-primary {
@@ -55,6 +260,10 @@ body {
   border-radius: 999px;
   padding: 0.6rem 1.4rem;
 }
+.btn-primary:hover {
+  background-color: var(--dark-green);
+  border-color: var(--dark-green);
+}
 
 .btn-secondary {
   --bs-btn-bg: var(--midnight-green);
@@ -63,11 +272,6 @@ body {
   --bs-btn-hover-border-color: var(--dark-green);
   --bs-btn-active-bg: var(--dark-green);
   --bs-btn-active-border-color: var(--dark-green);
-}
-
-.btn-primary:hover {
-  background-color: var(--dark-green);
-  border-color: var(--dark-green);
 }
 
 /*other btns*/

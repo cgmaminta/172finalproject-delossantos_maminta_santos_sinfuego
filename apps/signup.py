@@ -8,67 +8,119 @@ from dash.exceptions import PreventUpdate
 from app import app
 from apps import dbconnect as db
 
-layout = dbc.Card(
-    [
+layout = html.Div(
+    dbc.Card(
         dbc.CardBody([
-        html.H2('Enter the details'),
-        html.Hr(),
-        dbc.Alert('Please supply details.', color="danger", id='signup_alert',
-                  is_open=False),
-        dbc.Row(
-            [
-                dbc.Label("Username", width=2),
-                dbc.Col(
-                    dbc.Input(
-                        type="text", id="signup_username", placeholder="Enter a username"
-                    ),
-                    width=6,
-                ),
-            ],
-            className="mb-3",
-        ),
-        dbc.Row(
-            [
-                dbc.Label("Password", width=2),
-                dbc.Col(
-                    dbc.Input(
-                        type="password", id="signup_password", placeholder="Enter a password"
-                    ),
-                    width=6,
-                ),
-            ],
-            className="mb-3",
-        ),
-        
-        dbc.Row(
-            [
-                dbc.Label(" Confirm Password", width=2),
-                dbc.Col(
-                    dbc.Input(
-                        type="password", id="signup_passwordconf", placeholder="Re-type the password"
-                    ),
-                    width=6,
-                ),
-            ],
-            className="mb-3",
-        ),
-        dbc.Button('Sign up', color="secondary", id='singup_signupbtn'),
-        dbc.Modal(
-            [
-                dbc.ModalHeader(dbc.ModalTitle("User Saved")),
-                dbc.ModalBody("User has been saved", id='signup_confirmation'),
-                dbc.ModalFooter(
-                    dbc.Button(
-                        "Okay", href='/'
-                    )
-                ),
-            ],
-            id="signup_modal",
-            is_open=False,
-        ),
-        ]),
-    ], style={"width": "50%", "margin":"auto"}),
+            html.H2('Create your account', className='login-title'),
+            html.P('Set up your account', className='login-subtitle'),
 
+            dbc.Alert(
+                'Please supply a username and password.',
+                color='danger',
+                id='signup_alert',
+                is_open=False,
+                className='login-alert',
+            ),
+
+            dbc.Label('Username', html_for='signup_username', className='login-label'),
+            dbc.Input(
+                type='text',
+                id='signup_username',
+                placeholder='Enter a username',
+                className='mb-3',
+            ),
+
+            dbc.Label('Password', html_for='signup_password', className='login-label'),
+            dbc.InputGroup(
+                [
+                    dbc.Input(
+                        type='password',
+                        id='signup_password',
+                        placeholder='Enter a password',
+                    ),
+                    dbc.Button(
+                        html.I(id='signup_toggle_icon', className='bi bi-eye'),
+                        id='signup_toggle_pw',
+                        color='light',
+                        n_clicks=0,
+                        className='login-eye',
+                    ),
+                ],
+                className='mb-3',
+            ),
+
+            dbc.Label('Confirm password', html_for='signup_passwordconf', className='login-label'),
+            dbc.InputGroup(
+                [
+                    dbc.Input(
+                        type='password',
+                        id='signup_passwordconf',
+                        placeholder='Re-type the password',
+                    ),
+                    dbc.Button(
+                        html.I(id='signup_toggle_icon2', className='bi bi-eye'),
+                        id='signup_toggle_pw2',
+                        color='light',
+                        n_clicks=0,
+                        className='login-eye',
+                    ),
+                ],
+                className='mb-4',
+            ),
+
+            dbc.Button('Sign up', id='singup_signupbtn', color='primary', className='w-100 mb-3'),
+
+            html.Div(
+                [
+                    html.Hr(className='login-rule'),
+                    html.Span('Already have an account?', className='login-divider-text'),
+                    html.Hr(className='login-rule'),
+                ],
+                className='login-divider',
+            ),
+
+            dbc.Button('Back to log in', href='/', className='btn-outline-custom w-100'),
+
+            dbc.Modal(
+                [
+                    dbc.ModalHeader(dbc.ModalTitle('User Saved')),
+                    dbc.ModalBody('User has been saved', id='signup_confirmation'),
+                    dbc.ModalFooter(
+                        dbc.Button('Okay', href='/')
+                    ),
+                ],
+                id='signup_modal',
+                is_open=False,
+            ),
+        ]),
+        className='login-card',
+    ),
+    className='login-wrap',
+)
+
+
+@app.callback(
+    Output('signup_password', 'type'),
+    Output('signup_toggle_icon', 'className'),
+    Input('signup_toggle_pw', 'n_clicks'),
+    prevent_initial_call=True,
+)
+def signup_toggle_password(n_clicks):
+    if n_clicks and n_clicks % 2:
+        return 'text', 'bi bi-eye-slash'
+    return 'password', 'bi bi-eye'
+
+
+@app.callback(
+    Output('signup_passwordconf', 'type'),
+    Output('signup_toggle_icon2', 'className'),
+    Input('signup_toggle_pw2', 'n_clicks'),
+    prevent_initial_call=True,
+)
+def signup_toggle_confirm(n_clicks):
+    if n_clicks and n_clicks % 2:
+        return 'text', 'bi bi-eye-slash'
+    return 'password', 'bi bi-eye'
 
 # disable the signup button if passwords do not match
 @app.callback(

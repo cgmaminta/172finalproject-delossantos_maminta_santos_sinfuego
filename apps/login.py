@@ -11,47 +11,76 @@ from app import app
 from apps import dbconnect as db
 
 
-layout = dbc.Card([
-            #dbc.CardImg(src="https://assets.newsweek.com/wp-content/uploads/2025/08/1905075-file-photo-smiling-dog.jpg?w=1600&quality=80&webp=1", top=True, style={"height": "20%", "width": "20%"},),
-            dbc.CardBody([
-                html.H2('Please Login'),
-                html.Hr(),
-                dbc.Alert('Username or password is incorrect.', color="danger", id='login_alert',
-                        is_open=False),
-                dbc.Row(
-                    [
-                        dbc.Label("Username", width=2),
-                        dbc.Col(
-                            dbc.Input(
-                                type="text", id="login_username", placeholder="Enter username"
-                            ),
-                            width=6,
-                        ),
-                    ],
-                    className="mb-3",
-                ),
-                dbc.Row(
-                    [
-                        dbc.Label("Password", width=2),
-                        dbc.Col(
-                            dbc.Input(
-                                type="password", id="login_password", placeholder="Enter password"
-                            ),
-                            width=6,
-                        ),
-                    ],
-                    className="mb-3",
-                ),
-                dbc.Button('Login', color="secondary", id='login_loginbtn'),
-                html.Hr(),
-                html.A('Signup Now!', href='/signup'),
-            ]),
-        ],style={"width": "50%", "margin":"auto"}),
-    #]
-#)
+layout = html.Div(
+    dbc.Card(
+        dbc.CardBody([
+            html.H2('Welcome back!', className='login-title'),
+            html.P('Log in to your account', className='login-subtitle'),
+
+            dbc.Alert(
+                'Incorrect username or password. Please check and try again.',
+                color='danger',
+                id='login_alert',
+                is_open=False,
+                className='login-alert',
+            ),
+
+            dbc.Label('Username', html_for='login_username', className='login-label'),
+            dbc.Input(
+                type='text',
+                id='login_username',
+                placeholder='Enter username',
+                className='mb-3',
+            ),
+
+            dbc.Label('Password', html_for='login_password', className='login-label'),
+            dbc.InputGroup(
+                [
+                    dbc.Input(
+                        type='password',
+                        id='login_password',
+                        placeholder='Enter password',
+                    ),
+                    dbc.Button(
+                        html.I(id='login_toggle_icon', className='bi bi-eye'),
+                        id='login_toggle_pw',
+                        color='light',
+                        n_clicks=0,
+                        className='login-eye',
+                    ),
+                ],
+                className='mb-4',
+            ),
+
+            dbc.Button('Log in', id='login_loginbtn', color='primary', className='w-100 mb-3'),
+
+            html.Div(
+                [
+                    html.Hr(className='login-rule'),
+                    html.Span('New user?', className='login-divider-text'),
+                    html.Hr(className='login-rule'),
+                ],
+                className='login-divider',
+            ),
+
+            dbc.Button('Sign up', href='/signup', className='btn-outline-custom w-100'),
+        ]),
+        className='login-card',
+    ),
+    className='login-wrap',
+)
 
 
-
+@app.callback(
+    Output('login_password', 'type'),
+    Output('login_toggle_icon', 'className'),
+    Input('login_toggle_pw', 'n_clicks'),
+    prevent_initial_call=True,
+)
+def login_toggle_password(n_clicks):
+    if n_clicks and n_clicks % 2:
+        return 'text', 'bi bi-eye-slash'
+    return 'password', 'bi bi-eye'
 
 @app.callback(
     [
