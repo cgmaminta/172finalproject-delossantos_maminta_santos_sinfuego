@@ -13,7 +13,7 @@ from apps.class_profiles import class_profiles_management, class_profiles_manage
 from apps.student_details import student_details_management, student_details_management_profile
 from apps.daily_log import daily_log_management, daily_log_management_profile
 from apps.meal_plans import meal_plans_management, meal_plans_management_profile
-from apps.program_enrolment import program_enrolment_management, program_enrolment_management_profile
+from apps.school_health_records import health_records_management, health_records_management_profile, student_health_records
 from apps.reports import report
 
 
@@ -84,15 +84,19 @@ def displaypage(pathname, sessionlogout, userid):
             returnlayout = report.layout
 
         # Program Enrolment Management main page
-        elif pathname == "/program_enrolment/program_enrolment_management":
-            returnlayout = program_enrolment_management.layout
+        elif pathname == "/school_health_records/health_records_management":
+            returnlayout = health_records_management.layout
 
-        # Individual Program Cycle Profile page
         # Example: /program_enrolment/program_enrolment_management_profile/1
         elif pathname and pathname.startswith(
-            "/program_enrolment/program_enrolment_management_profile/"
+            "/school_health_records/health_records_management_profile/"
         ):
-            returnlayout = program_enrolment_management_profile.layout
+            returnlayout = health_records_management_profile.layout
+
+        elif pathname and pathname.startswith(
+            "/school_health_records/student_health_records/"
+        ):
+            returnlayout = student_health_records.layout
 
         # Class Profiles main page
         elif pathname == "/class_profiles/class_profiles_management":
