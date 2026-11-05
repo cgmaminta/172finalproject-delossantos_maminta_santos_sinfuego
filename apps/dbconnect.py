@@ -7,7 +7,7 @@ def getdblocation():
         database='ie172finalproject', 
         user='postgres', 
         port=5432, 
-        password='caramaminta24',  #change pass when pulled
+        password='postgres',  #change pass when pulled
     )
 
     return db
