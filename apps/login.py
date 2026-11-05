@@ -2,7 +2,8 @@ import hashlib
 
 
 import dash_bootstrap_components as dbc
-from dash import dcc, html, callback_context
+# >>> CHANGED: added no_update
+from dash import dcc, html, callback_context, no_update
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
@@ -17,7 +18,7 @@ layout = html.Div(
             html.H2('Welcome back!', className='login-title'),
             html.P('Log in to your account', className='login-subtitle'),
 
-            # >>> LOGIN ERROR MESSAGE: hidden by default, shown by the login_user callback below
+            # Login error message: hidden by default, shown by the login_user callback below
             dbc.Alert(
                 'Incorrect username or password. Please check and try again.',
                 color='danger',
@@ -84,11 +85,12 @@ def login_toggle_password(n_clicks):
     return 'password', 'bi bi-eye'
 
 
-# >>> ADDED: the full login callback. It outputs to login_alert so the error can show.
 @app.callback(
     [
         Output('login_alert', 'is_open'),
         Output('currentuserid', 'data'),
+        # >>> ADDED: lets this callback send the user to the home page after login
+        Output('url', 'pathname', allow_duplicate=True),
     ],
     [
         Input('login_loginbtn', 'n_clicks'),
@@ -96,18 +98,20 @@ def login_toggle_password(n_clicks):
     [
         State('login_username', 'value'),
         State('login_password', 'value'),
-        State('currentuserid', 'data'),
+        # >>> CHANGED: State('currentuserid') removed, it isn't needed anymore
     ],
     prevent_initial_call=True,
 )
-def login_user(loginbtn, username, password, currentuserid):
+# >>> CHANGED: removed the currentuserid parameter to match the removed State
+def login_user(loginbtn, username, password):
     ctx = callback_context
     if not ctx.triggered or ctx.triggered[0]['prop_id'].split('.')[0] != 'login_loginbtn':
         raise PreventUpdate
 
-    # >>> ADDED: empty fields count as a failed login, so show the error
+    # >>> CHANGED: no_update for the user id and url, so index.py doesn't
+    # re-render the login page and wipe the error message
     if not username or not password:
-        return True, currentuserid
+        return True, no_update, no_update
 
     encrypted_password = hashlib.sha256(password.encode('utf-8')).hexdigest()
 
@@ -123,15 +127,15 @@ def login_user(loginbtn, username, password, currentuserid):
     df = db.getDataFromDB(sql, values, cols)
 
     if df.shape[0]:
-        # >>> ADDED: success hides the error and stores the user id
-        # >>> CHANGED: wrapped in int() so a NumPy integer doesn't break dcc.Store
-        return False, int(df['userid'][0])
+        # >>> CHANGED: success hides the error, stores the user id (as a plain int),
+        # and redirects to the home page
+        return False, int(df['userid'][0]), '/home'
 
-    # >>> ADDED: wrong username or password, so show the error and keep the user id as is
-    return True, currentuserid
+    # >>> CHANGED: wrong username or password, so show the error and leave everything else alone
+    return True, no_update, no_update
 
 
-# >>> ADDED (optional): hides the error again once the user starts typing.
+# Optional: hides the error again once the user starts typing.
 # Needs Dash 2.9 or newer for allow_duplicate. Delete this block if you don't want it.
 @app.callback(
     Output('login_alert', 'is_open', allow_duplicate=True),

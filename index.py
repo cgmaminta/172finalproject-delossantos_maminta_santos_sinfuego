@@ -2,7 +2,8 @@ import webbrowser
 
 import dash
 import dash_bootstrap_components as dbc
-from dash import dcc, html, Input, Output, State
+# >>> CHANGED: added no_update
+from dash import dcc, html, Input, Output, State, no_update
 from dash.exceptions import PreventUpdate
 
 from app import app
@@ -48,31 +49,30 @@ app.layout = html.Div(
         Output("page_content", "children"),
         Output("sessionlogout", "data"),
         Output("navbar_div", "className"),
+        # >>> ADDED: displaypage now also resets the user id on /logout
+        Output("currentuserid", "data", allow_duplicate=True),
     ],
     [
         Input("url", "pathname"),
-        # >>> ADDED: re-render the page whenever the logged-in user changes (login/logout)
+        # Re-render the page whenever the logged-in user changes (login/logout)
         Input("currentuserid", "data"),
     ],
     [
         State("sessionlogout", "data"),
-        # >>> CHANGED: removed State("currentuserid", "data"); it is now an Input above
     ],
+    # >>> ADDED: required because currentuserid is also written by login.py
+    prevent_initial_call="initial_duplicate",
 )
-# >>> CHANGED: userid now comes from the Input, so the parameter order is (pathname, userid, sessionlogout)
 def displaypage(pathname, userid, sessionlogout):
     ctx = dash.callback_context
     if not ctx.triggered:
         raise PreventUpdate
 
-    # >>> CHANGED: also allow the callback to run when currentuserid triggers it
     eventid = ctx.triggered[0]["prop_id"].split(".")[0]
     if eventid not in ("url", "currentuserid"):
         raise PreventUpdate
 
-    # >>> CHANGED: also handle userid being None
     if userid is None or userid < 0:  # User is logged out
-        # >>> CHANGED: "/logout" now shows the login page instead of a 404
         if pathname in ["/", "/logout"]:
             returnlayout = login.layout
         elif pathname == "/signup":
@@ -88,7 +88,7 @@ def displaypage(pathname, userid, sessionlogout):
         elif pathname in ["/", "/home"]:
             returnlayout = home.layout
 
-        # >>> ADDED: logged-in users who open /signup go to home instead of a 404
+        # Logged-in users who open /signup go to home instead of a 404
         elif pathname == "/signup":
             returnlayout = home.layout
 
@@ -138,8 +138,6 @@ def displaypage(pathname, userid, sessionlogout):
             returnlayout = "404: request not found"
 
     # Determine whether the session should be treated as logged out.
-    # >>> CHANGED: removed `pathname == "/"` from this list. A logged-in user
-    # can be on "/" (it shows the home page), and that was hiding the navbar.
     logout_conditions = [
         pathname == "/logout",
         userid is None,
@@ -151,20 +149,15 @@ def displaypage(pathname, userid, sessionlogout):
     # Hide the navbar when logged out.
     navbar_classname = "d-none" if sessionlogout else ""
 
-    return [returnlayout, sessionlogout, navbar_classname]
+    # >>> ADDED: on /logout, clear the stored user id; otherwise leave it alone
+    new_userid = -1 if pathname == "/logout" else no_update
+
+    # >>> CHANGED: returns 4 values now (added new_userid)
+    return [returnlayout, sessionlogout, navbar_classname, new_userid]
 
 
-# >>> ADDED: reset the user id when visiting /logout so the session really ends.
-# Needs Dash 2.9 or newer (allow_duplicate / "initial_duplicate").
-@app.callback(
-    Output("currentuserid", "data", allow_duplicate=True),
-    Input("url", "pathname"),
-    prevent_initial_call="initial_duplicate",
-)
-def reset_user_on_logout(pathname):
-    if pathname == "/logout":
-        return -1
-    raise PreventUpdate
+# >>> REMOVED: the old reset_user_on_logout callback is gone,
+# since displaypage now does the reset itself.
 
 
 if __name__ == "__main__":
