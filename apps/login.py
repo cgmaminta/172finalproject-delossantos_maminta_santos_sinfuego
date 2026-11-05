@@ -120,7 +120,7 @@ def login_user(loginbtn, username, password, currentuserid):
     """
     values = [username, encrypted_password]
     cols = ['userid']
-    df = db.querydatafromdatabase(sql, values, cols)
+    df = db.getDataFromDB(sql, values, cols)
 
     if df.shape[0]:
         # >>> ADDED: success hides the error and stores the user id

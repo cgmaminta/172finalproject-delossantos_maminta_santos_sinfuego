@@ -14,6 +14,9 @@ layout = html.Div(
             html.H2('Create your account', className='login-title'),
             html.P('Set up your account', className='login-subtitle'),
 
+            # >>> CHANGED: the message is no longer hard-coded in the layout.
+            # The saveuser callback now sets the text (children), so this alert
+            # can show either "supply a username and password" or "username taken".
             dbc.Alert(
                 'Please supply a username and password.',
                 color='danger',
@@ -27,6 +30,8 @@ layout = html.Div(
                 type='text',
                 id='signup_username',
                 placeholder='Enter a username',
+                # >>> ADDED: users.user_name is VARCHAR(32), so longer names would fail the insert
+                maxLength=32,
                 className='mb-3',
             ),
 
@@ -133,8 +138,8 @@ def signup_toggle_confirm(n_clicks):
     ]
 )
 def deactivatesignup(password, passwordconf):
-    
-    # enable button if password exists and passwordconf exists 
+
+    # enable button if password exists and passwordconf exists
     #  and password = passwordconf
     enablebtn = password and passwordconf and password == passwordconf
 
@@ -145,7 +150,9 @@ def deactivatesignup(password, passwordconf):
 @app.callback(
     [
         Output('signup_alert', 'is_open'),
-        Output('signup_modal', 'is_open')   
+        # >>> ADDED: lets the callback change the alert text depending on the error
+        Output('signup_alert', 'children'),
+        Output('signup_modal', 'is_open')
     ],
     [
         Input('singup_signupbtn', 'n_clicks')
@@ -156,24 +163,45 @@ def deactivatesignup(password, passwordconf):
     ]
 )
 def saveuser(loginbtn, username, password):
-    openalert = openmodal = False
-    if loginbtn:
-        if username and password:
-            sql = """INSERT INTO users (user_name, user_password)
-            VALUES (%s, %s)"""  
-            
-            # This lambda fcn encrypts the password before saving it
-            # for security purposes, not even database admins should see
-            # user passwords 
-            encrypt_string = lambda string: hashlib.sha256(string.encode('utf-8')).hexdigest()  
-            
-            values = [username, encrypt_string(password)]
-            db.modifyDB(sql, values)
-            
-            openmodal = True
-        else:
-            openalert = True
-    else:
+    # >>> CHANGED: now returns 3 values (alert open, alert text, modal open)
+    if not loginbtn:
         raise PreventUpdate
 
-    return [openalert, openmodal]
+    # Missing username or password
+    if not (username and password):
+        # >>> CHANGED: the original message is now returned here instead of being fixed in the layout
+        return True, 'Please supply a username and password.', False
+
+    # >>> ADDED: check if the username already exists.
+    # No "NOT user_delete_ind" filter on purpose: the UNIQUE constraint on
+    # user_name also applies to soft-deleted users, so their names are still taken.
+    check_sql = """
+        SELECT user_id
+        FROM users
+        WHERE user_name = %s
+    """
+    existing = db.getDataFromDB(check_sql, [username], ['userid'])
+
+    if existing.shape[0]:
+        # >>> ADDED: username already taken, so show the error and do NOT insert
+        return True, 'That username is already taken. Please choose a different one.', False
+
+    sql = """INSERT INTO users (user_name, user_password)
+    VALUES (%s, %s)"""
+
+    # This lambda fcn encrypts the password before saving it
+    # for security purposes, not even database admins should see
+    # user passwords
+    encrypt_string = lambda string: hashlib.sha256(string.encode('utf-8')).hexdigest()
+
+    values = [username, encrypt_string(password)]
+
+    # >>> ADDED: safety net. If two people sign up with the same name at nearly
+    # the same time, the database's UNIQUE constraint rejects the second insert.
+    # This catches that instead of crashing the callback.
+    try:
+        db.modifyDB(sql, values)
+    except Exception:
+        return True, 'That username is already taken. Please choose a different one.', False
+
+    return False, '', True
