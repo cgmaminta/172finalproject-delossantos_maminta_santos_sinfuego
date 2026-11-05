@@ -182,7 +182,7 @@ def classify_percentile(z_score):
     elif percentile < 15:
         category, priority = "Mildly Underweight", "Medium"
     elif percentile <= 85:
-        category, priority = "Normal Weight", "Low"
+        category, priority = "Normal", "Low"
     else:
         category, priority = "Overweight", "Medium"
 
