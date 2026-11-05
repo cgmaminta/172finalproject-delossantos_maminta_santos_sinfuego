@@ -1,12 +1,24 @@
 import json
 
 import dash_bootstrap_components as dbc
-from dash import ALL, dcc, html, callback_context
+import pandas as pd
+from dash import ALL, dcc, html, callback_context, no_update
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from app import app
 from apps import dbconnect as db
+from apps.academic_year import (
+    QUARTERS,
+    end_current_school_year,
+    ensure_quarter_cycles,
+    get_current_school_year,
+    get_school_year_options,
+    is_year_ended,
+    next_school_year,
+    quarter_from_semester,
+    school_year_from_semester,
+)
 
 
 PAGE_PATH = "/class_profiles/class_profiles_management"
@@ -86,6 +98,7 @@ def get_triggered_component():
 layout = html.Div(
     [
         dcc.Store(id="class_profile_refresh_store", data=0),
+        dcc.Store(id="class_year_refresh", data=0),
         dcc.Store(id="pending_delete_class_id", data=None),
         dcc.Store(id="editing_class_id", data=None),
 
@@ -99,43 +112,72 @@ layout = html.Div(
                             className="text-muted",
                         ),
                     ],
-                    width=8,
+                    md=6,
                 ),
                 dbc.Col(
-                    dbc.Button(
-                        "Add a Class",
-                        id="add_class_btn",
-                        color="success",
-                        n_clicks=0,
-                        disabled=False,
-                    ),
-                    width=4,
-                    className="text-end align-self-center",
+                    [
+                        dbc.Button(
+                            "End Academic Year",
+                            id="end_year_btn",
+                            color="warning",
+                            outline=True,
+                            n_clicks=0,
+                            className="me-2",
+                        ),
+                        dbc.Button(
+                            "Add a Class",
+                            id="add_class_btn",
+                            color="success",
+                            n_clicks=0,
+                            disabled=False,
+                        ),
+                    ],
+                    md=6,
+                    className="text-md-end align-self-center",
                 ),
             ],
             className="mb-3",
         ),
 
+        # Page-level alert (End Academic Year result, etc.)
+        dbc.Alert(id="class_page_alert", is_open=False, dismissable=True, duration=6000),
+
+        # Filters: academic year, then quarter
         dbc.Row(
             [
                 dbc.Col(
-                    dbc.Label("Show classes"),
-                    width="auto",
-                    className="align-self-center",
+                    [
+                        dbc.Label("Academic Year", className="fw-bold"),
+                        dcc.Dropdown(
+                            id="class_year_filter",
+                            options=[],
+                            value=None,
+                            clearable=False,
+                            searchable=False,
+                        ),
+                    ],
+                    md=3,
+                    xs=6,
                 ),
                 dbc.Col(
-                    dcc.Dropdown(
-                        id="class_view_filter",
-                        options=[
-                            {"label": "Active Classes", "value": "active"},
-                            {"label": "Archived Classes", "value": "archived"},
-                        ],
-                        value="active",
-                        clearable=False,
-                        searchable=False,
-                    ),
-                    md=4,
-                    xs=8,
+                    [
+                        dbc.Label("Quarter", className="fw-bold"),
+                        dcc.Dropdown(
+                            id="class_quarter_filter",
+                            options=[{"label": "All Quarters", "value": "all"}]
+                            + [{"label": q, "value": q} for q in QUARTERS],
+                            value="all",
+                            clearable=False,
+                            searchable=False,
+                        ),
+                    ],
+                    md=3,
+                    xs=6,
+                ),
+                dbc.Col(
+                    html.Div(id="class_year_status", className="text-muted small"),
+                    md=6,
+                    className="align-self-end pb-2",
                 ),
             ],
             className="mb-3",
@@ -151,14 +193,12 @@ layout = html.Div(
             className="shadow-sm",
         ),
 
-        # Create class modal
+        # Create / edit class modal
         dbc.Modal(
             [
                 dbc.ModalHeader(dbc.ModalTitle("Create a Class", id="class_modal_title")),
                 dbc.ModalBody(
                     [
-                        # Duplicate-section and validation alerts appear inside
-                        # the modal so they remain visible above the form.
                         dbc.Alert(
                             id="class_alert",
                             is_open=False,
@@ -200,11 +240,13 @@ layout = html.Div(
                             [
                                 dbc.Col(
                                     [
-                                        dbc.Label("School Year", className="fw-bold"),
+                                        dbc.Label("Academic Year", className="fw-bold"),
+                                        # Read-only: classes are always created in
+                                        # the current academic year.
                                         dbc.Input(
                                             id="class_school_year",
                                             type="text",
-                                            placeholder="e.g. 2026-2027",
+                                            disabled=True,
                                         ),
                                     ],
                                     md=6,
@@ -214,12 +256,7 @@ layout = html.Div(
                                         dbc.Label("Quarter", className="fw-bold"),
                                         dbc.Select(
                                             id="class_quarter",
-                                            options=[
-                                                {"label": "1st Quarter", "value": "1st Quarter"},
-                                                {"label": "2nd Quarter", "value": "2nd Quarter"},
-                                                {"label": "3rd Quarter", "value": "3rd Quarter"},
-                                                {"label": "4th Quarter", "value": "4th Quarter"},
-                                            ],
+                                            options=[{"label": q, "value": q} for q in QUARTERS],
                                             placeholder="Select Quarter",
                                         ),
                                     ],
@@ -258,21 +295,133 @@ layout = html.Div(
             centered=True,
         ),
 
-        # Native browser confirmation before soft-deleting a class
         dcc.ConfirmDialog(
             id="confirm_delete_class",
             message=(
-                "Delete this class? It will be removed from the active and "
-                "archived lists, but its database record and enrolment history "
-                "will be retained."
+                "Delete this class? It will be removed from the class list, "
+                "but its database record and enrolment history will be retained."
             ),
         ),
+
+        dcc.ConfirmDialog(id="confirm_end_year", message=""),
     ]
 )
 
 
 # =============================================================================
-# CALLBACK: CREATE CLASSES AND DISPLAY ACTIVE / ARCHIVED CLASSES
+# CALLBACK: ACADEMIC-YEAR DROPDOWN
+# =============================================================================
+
+@app.callback(
+    [
+        Output("class_year_filter", "options"),
+        Output("class_year_filter", "value"),
+    ],
+    [
+        Input("url", "pathname"),
+        Input("class_year_refresh", "data"),
+    ],
+    [State("class_year_filter", "value")],
+)
+def populate_year_filter(pathname, _year_refresh, current_value):
+    if not pathname or pathname.rstrip("/") != PAGE_PATH.rstrip("/"):
+        raise PreventUpdate
+
+    options = get_school_year_options()
+    valid = {item["value"] for item in options}
+    trigger = get_triggered_component()
+
+    # Keep the user's selection, except right after ending a year (or on first
+    # load), when the dropdown jumps to the current academic year.
+    if trigger == "class_year_refresh" or current_value not in valid:
+        value = get_current_school_year()
+    else:
+        value = current_value
+
+    return options, value
+
+
+# =============================================================================
+# CALLBACK: YEAR STATUS, ADD BUTTON, END-YEAR CONFIRMATION TEXT
+# =============================================================================
+
+@app.callback(
+    [
+        Output("class_year_status", "children"),
+        Output("add_class_btn", "disabled"),
+        Output("confirm_end_year", "message"),
+    ],
+    [
+        Input("class_year_filter", "value"),
+        Input("class_year_refresh", "data"),
+    ],
+)
+def update_year_controls(selected_year, _year_refresh):
+    current = get_current_school_year()
+    selected = selected_year or current
+    ended = is_year_ended(selected)
+
+    # Nothing is shown for the current year; ended years get a small note.
+    status = (
+        f"Academic year {selected} has ended. Its classes are view-only."
+        if ended else ""
+    )
+
+    message = (
+        f"End academic year {current}?\n\n"
+        f"{next_school_year(current)} will become the current academic year. "
+        f"Classes and student records from {current} stay viewable but can no "
+        f"longer be changed. This cannot be undone."
+    )
+    return status, ended, message
+
+
+# =============================================================================
+# CALLBACK: END ACADEMIC YEAR
+# =============================================================================
+
+@app.callback(
+    [
+        Output("confirm_end_year", "displayed"),
+        Output("class_year_refresh", "data"),
+        Output("class_page_alert", "children"),
+        Output("class_page_alert", "color"),
+        Output("class_page_alert", "is_open"),
+    ],
+    [
+        Input("end_year_btn", "n_clicks"),
+        Input("confirm_end_year", "submit_n_clicks"),
+    ],
+    [State("class_year_refresh", "data")],
+    prevent_initial_call=True,
+)
+def end_academic_year(end_clicks, confirm_clicks, refresh_value):
+    trigger_id = get_triggered_component()
+    triggered = callback_context.triggered
+    if trigger_id is None or not triggered or not triggered[0].get("value"):
+        raise PreventUpdate
+
+    if trigger_id == "end_year_btn":
+        return True, no_update, no_update, no_update, no_update
+
+    if trigger_id == "confirm_end_year":
+        try:
+            ended, new_year = end_current_school_year()
+        except Exception as exc:
+            return False, no_update, f"Unable to end the academic year: {exc}", "danger", True
+        return (
+            False,
+            (refresh_value or 0) + 1,
+            f"Academic year {ended} has ended. {new_year} is now the current academic year.",
+            "success",
+            True,
+        )
+
+    raise PreventUpdate
+
+
+# =============================================================================
+# CALLBACK: CREATE / EDIT CLASSES AND DISPLAY THE CLASS LIST
 # =============================================================================
 
 @app.callback(
@@ -296,7 +445,8 @@ layout = html.Div(
         Input("add_class_btn", "n_clicks"),
         Input("class_modal_cancel_btn", "n_clicks"),
         Input("class_modal_save_btn", "n_clicks"),
-        Input("class_view_filter", "value"),
+        Input("class_year_filter", "value"),
+        Input("class_quarter_filter", "value"),
         Input("class_profile_refresh_store", "data"),
         Input({"type": "edit_class", "index": ALL}, "n_clicks"),
     ],
@@ -304,7 +454,6 @@ layout = html.Div(
         State("class_modal", "is_open"),
         State("class_grade_level", "value"),
         State("class_section", "value"),
-        State("class_school_year", "value"),
         State("class_quarter", "value"),
         State("class_teacher_dropdown", "value"),
         State("editing_class_id", "data"),
@@ -315,31 +464,36 @@ def manage_class_profiles(
     add_clicks,
     cancel_clicks,
     save_clicks,
-    view_filter,
+    year_filter,
+    quarter_filter,
     refresh_value,
     edit_clicks,
     is_open,
     grade,
     section,
-    school_year,
     quarter,
     teacher_id,
     editing_class_id,
 ):
-    
     if not pathname or pathname.rstrip("/") != PAGE_PATH.rstrip("/"):
         raise PreventUpdate
 
     trigger_id = get_triggered_component()
+    triggered = callback_context.triggered
+    triggered_value = triggered[0].get("value") if triggered else None
+
+    current_year = get_current_school_year()
+    selected_year = year_filter or current_year
+    year_is_open = not is_year_ended(selected_year)
 
     modal_open = bool(is_open)
-    teacher_options = []
+    teacher_options = no_update
     alert_text = ""
     alert_color = "success"
     alert_open = False
     grade_output = grade
     section_output = section
-    school_year_output = school_year
+    school_year_output = current_year
     quarter_output = quarter
     teacher_output = teacher_id
     modal_title = "Create a Class"
@@ -350,27 +504,26 @@ def manage_class_profiles(
         teacher_options = get_teacher_options()
         grade_output = None
         section_output = None
-        school_year_output = None
+        school_year_output = current_year
         quarter_output = None
         teacher_output = None
         modal_title = "Create a Class"
         editing_id_output = None
 
-    elif isinstance(trigger_id, dict) and trigger_id.get("type") == "edit_class":
+    elif (
+        isinstance(trigger_id, dict)
+        and trigger_id.get("type") == "edit_class"
+        and triggered_value
+    ):
         class_id_to_edit = int(trigger_id["index"])
-        sql_edit = """
-            SELECT
-                sc.grade_level,
-                sc.student_section,
-                pc.semester,
-                sc.employee_id
+        df_edit = db.getDataFromDB(
+            """
+            SELECT sc.grade_level, sc.student_section, pc.semester, sc.employee_id
             FROM student_class sc
             LEFT JOIN program_cycle pc ON sc.cycle_id = pc.cycle_id
             WHERE sc.class_id = %s
               AND COALESCE(sc.class_delete_ind, FALSE) = FALSE
-        """
-        df_edit = db.getDataFromDB(
-            sql_edit,
+            """,
             [class_id_to_edit],
             ["grade_level", "student_section", "semester", "employee_id"],
         )
@@ -381,19 +534,22 @@ def manage_class_profiles(
             alert_open = True
             modal_open = False
             editing_id_output = None
+        elif is_year_ended(school_year_from_semester(df_edit.iloc[0]["semester"])):
+            alert_text = "This class belongs to an ended academic year and can no longer be edited."
+            alert_color = "warning"
+            alert_open = True
+            modal_open = False
+            editing_id_output = None
         else:
             edit_row = df_edit.iloc[0]
             semester = str(edit_row["semester"] or "")
-            if " - " in semester:
-                school_year_output, quarter_output = semester.rsplit(" - ", 1)
-            else:
-                school_year_output, quarter_output = "", None
-
+            school_year_output = school_year_from_semester(semester) or current_year
+            quarter_output = quarter_from_semester(semester)
             grade_output = int(edit_row["grade_level"])
             section_output = edit_row["student_section"]
             teacher_output = (
                 int(edit_row["employee_id"])
-                if edit_row["employee_id"] is not None
+                if pd.notna(edit_row["employee_id"])
                 else None
             )
             editing_id_output = class_id_to_edit
@@ -406,10 +562,8 @@ def manage_class_profiles(
         editing_id_output = None
 
     elif trigger_id == "class_modal_save_btn":
-        required_values = [grade, section, school_year, quarter]
-
-        if not all(value is not None and str(value).strip() for value in required_values):
-            alert_text = "Please complete Grade Level, Section, School Year, and Quarter."
+        if not all(value is not None and str(value).strip() for value in [grade, section, quarter]):
+            alert_text = "Please complete Grade Level, Section, and Quarter."
             alert_color = "warning"
             alert_open = True
             modal_open = True
@@ -420,38 +574,40 @@ def manage_class_profiles(
                     raise ValueError("Grade Level must be between 1 and 6.")
 
                 section_value = section.strip()
-                cycle_id = get_or_create_cycle(school_year, quarter)
 
+                # Classes are always saved into the CURRENT academic year.
+                ensure_quarter_cycles(current_year)
+                cycle_id = get_or_create_cycle(current_year, quarter)
                 if cycle_id is None:
                     raise ValueError("Could not find or create the selected academic period.")
 
-                # Section names must be unique across grade levels in the
-                # same academic period. When editing, exclude this class itself.
-                sql_check = """
+                # Section names must be unique across ALL grade levels, academic
+                # years and quarters. When editing, exclude the class itself.
+                df_existing = db.getDataFromDB(
+                    """
                     SELECT class_id
                     FROM student_class
                     WHERE LOWER(BTRIM(student_section)) = LOWER(BTRIM(%s))
-                      AND cycle_id = %s
                       AND COALESCE(class_delete_ind, FALSE) = FALSE
                       AND (%s IS NULL OR class_id <> %s)
                     LIMIT 1
-                """
-                df_existing = db.getDataFromDB(
-                    sql_check,
-                    [section_value, cycle_id, editing_class_id, editing_class_id],
+                    """,
+                    [section_value, editing_class_id, editing_class_id],
                     ["class_id"],
                 )
 
                 if df_existing is not None and not df_existing.empty:
                     alert_text = (
-                        "This section name is already used in the selected "
-                        "school year and quarter, regardless of grade level."
+                        "This section name is already in use. Section names "
+                        "must be unique across all grade levels, academic "
+                        "years and quarters."
                     )
                     alert_color = "warning"
                     alert_open = True
                     modal_open = True
                 elif editing_class_id is not None:
-                    sql_update = """
+                    db.modifyDB(
+                        """
                         UPDATE student_class
                         SET grade_level = %s,
                             student_section = %s,
@@ -459,9 +615,7 @@ def manage_class_profiles(
                             employee_id = %s
                         WHERE class_id = %s
                           AND COALESCE(class_delete_ind, FALSE) = FALSE
-                    """
-                    db.modifyDB(
-                        sql_update,
+                        """,
                         [grade_value, section_value, cycle_id, teacher_id, editing_class_id],
                     )
                     alert_text = "Class updated successfully."
@@ -469,13 +623,12 @@ def manage_class_profiles(
                     modal_open = False
                     editing_id_output = None
                 else:
-                    sql_insert = """
+                    db.modifyDB(
+                        """
                         INSERT INTO student_class
                             (grade_level, student_section, cycle_id, employee_id)
                         VALUES (%s, %s, %s, %s)
-                    """
-                    db.modifyDB(
-                        sql_insert,
+                        """,
                         [grade_value, section_value, cycle_id, teacher_id],
                     )
                     alert_text = "Class created successfully."
@@ -483,20 +636,15 @@ def manage_class_profiles(
                     modal_open = False
 
             except Exception as exc:
-                alert_text = f"Unable to create class: {exc}"
+                alert_text = f"Unable to save class: {exc}"
                 alert_color = "danger"
                 alert_open = True
                 modal_open = True
 
-    # Load only non-deleted classes, then select active or archived records.
-    if view_filter == "archived":
-        archive_condition = "COALESCE(sc.class_archive_ind, FALSE) = TRUE"
-        empty_message = "There are no archived classes."
-    else:
-        archive_condition = "COALESCE(sc.class_archive_ind, FALSE) = FALSE"
-        empty_message = "No active classes yet. Click 'Add a Class' to get started."
-
-    sql_classes = f"""
+    # -------------------------------------------------------------------------
+    # Class list for the selected academic year (+ optional quarter)
+    # -------------------------------------------------------------------------
+    sql_classes = """
         SELECT
             sc.class_id,
             sc.grade_level,
@@ -505,7 +653,7 @@ def manage_class_profiles(
             t.teacher_name,
             COUNT(pe.enrolment_id) AS student_count
         FROM student_class sc
-        LEFT JOIN program_cycle pc
+        JOIN program_cycle pc
             ON sc.cycle_id = pc.cycle_id
         LEFT JOIN teacher t
             ON sc.employee_id = t.employee_id
@@ -513,121 +661,113 @@ def manage_class_profiles(
             ON sc.class_id = pe.class_id
            AND COALESCE(pe.enrolment_status, TRUE) = TRUE
         WHERE COALESCE(sc.class_delete_ind, FALSE) = FALSE
-          AND {archive_condition}
+          AND pc.semester LIKE %s
+          {quarter_clause}
         GROUP BY
-            sc.class_id,
-            sc.grade_level,
-            sc.student_section,
-            pc.semester,
-            t.teacher_name
-        ORDER BY sc.grade_level, sc.student_section
+            sc.class_id, sc.grade_level, sc.student_section,
+            pc.semester, t.teacher_name
     """
+    params = [f"{selected_year} - %"]
+    if quarter_filter and quarter_filter != "all":
+        quarter_clause = "AND pc.semester = %s"
+        params.append(f"{selected_year} - {quarter_filter}")
+    else:
+        quarter_clause = ""
 
     df_classes = db.getDataFromDB(
-        sql_classes,
-        [],
-        [
-            "class_id",
-            "grade_level",
-            "student_section",
-            "semester",
-            "teacher_name",
-            "student_count",
-        ],
+        sql_classes.format(quarter_clause=quarter_clause),
+        params,
+        ["class_id", "grade_level", "student_section", "semester",
+         "teacher_name", "student_count"],
     )
 
     if df_classes is None or df_classes.empty:
+        empty_message = (
+            "No classes match the selected academic year and quarter."
+            if not year_is_open
+            else "No classes yet for this selection. Click 'Add a Class' to get started."
+        )
         class_content = dbc.Alert(empty_message, color="info", className="m-0")
     else:
-        class_cards = []
+        # Sort by quarter, then grade level, then section.
+        df_classes["quarter_name"] = df_classes["semester"].map(quarter_from_semester)
+        df_classes["quarter_order"] = df_classes["quarter_name"].map(
+            lambda q: QUARTERS.index(q) if q in QUARTERS else len(QUARTERS)
+        )
+        df_classes = df_classes.sort_values(
+            ["quarter_order", "grade_level", "student_section"]
+        )
 
+        header = html.Thead(
+            html.Tr(
+                [
+                    html.Th("Grade"),
+                    html.Th("Section"),
+                    html.Th("Quarter"),
+                    html.Th("Teacher"),
+                    html.Th("Enrolled", className="text-center"),
+                    html.Th("Actions", className="text-end"),
+                ]
+            )
+        )
+
+        body_rows = []
         for _, row in df_classes.iterrows():
             class_id = int(row["class_id"])
-            class_title = f"Grade {row['grade_level']} - {row['student_section']}"
-            academic_period = row["semester"] or "Academic period not specified"
-            teacher_name = row["teacher_name"] or "No teacher assigned"
-            student_count = int(row["student_count"] or 0)
 
-            card_actions = [
+            actions = [
                 dbc.Button(
-                    "View Enrolled Students",
+                    "View Students",
                     href=f"/student-details/{class_id}",
                     color="primary",
                     outline=True,
-                    className="w-100 mb-2",
+                    size="sm",
+                    className="me-2",
                 )
             ]
-
-            card_actions.append(
-                dbc.Button(
-                    "Edit Class Details",
-                    id={"type": "edit_class", "index": class_id},
-                    color="info",
-                    outline=True,
-                    className="w-100 mb-2",
-                    n_clicks=0,
-                )
-            )
-
-            if view_filter == "archived":
-                card_actions.append(
-                    dbc.Button(
-                        "Restore",
-                        id={"type": "restore_class", "index": class_id},
-                        color="success",
-                        outline=True,
-                        className="w-100 mb-2",
-                        n_clicks=0,
-                    )
-                )
-            else:
-                card_actions.append(
-                    dbc.Button(
-                        "Archive",
-                        id={"type": "archive_class", "index": class_id},
-                        color="warning",
-                        outline=True,
-                        className="w-100 mb-2",
-                        n_clicks=0,
-                    )
-                )
-
-            card_actions.append(
-                dbc.Button(
-                    "Delete",
-                    id={"type": "delete_class", "index": class_id},
-                    color="danger",
-                    outline=True,
-                    className="w-100",
-                    n_clicks=0,
-                )
-            )
-
-            class_cards.append(
-                dbc.Col(
-                    dbc.Card(
-                        dbc.CardBody(
-                            [
-                                html.H5(class_title, className="fw-bold mb-2"),
-                                html.P(academic_period, className="text-muted mb-1"),
-                                html.P(f"Teacher: {teacher_name}", className="mb-1"),
-                                html.P(
-                                    f"Enrolled students: {student_count}",
-                                    className="mb-3",
-                                ),
-                                html.Div(card_actions),
-                            ]
+            if year_is_open:
+                actions.extend(
+                    [
+                        dbc.Button(
+                            "Edit",
+                            id={"type": "edit_class", "index": class_id},
+                            color="info",
+                            outline=True,
+                            size="sm",
+                            className="me-2",
+                            n_clicks=0,
                         ),
-                        className="h-100 shadow-sm",
-                    ),
-                    xs=12,
-                    md=6,
-                    lg=4,
-                    className="mb-3",
+                        dbc.Button(
+                            "Delete",
+                            id={"type": "delete_class", "index": class_id},
+                            color="danger",
+                            outline=True,
+                            size="sm",
+                            n_clicks=0,
+                        ),
+                    ]
+                )
+
+            body_rows.append(
+                html.Tr(
+                    [
+                        html.Td(f"Grade {int(row['grade_level'])}"),
+                        html.Td(row["student_section"], className="fw-semibold"),
+                        html.Td(row["quarter_name"] or "—"),
+                        html.Td(row["teacher_name"] or "No teacher assigned"),
+                        html.Td(int(row["student_count"] or 0), className="text-center"),
+                        html.Td(actions, className="text-end text-nowrap"),
+                    ]
                 )
             )
 
-        class_content = dbc.Row(class_cards)
+        class_content = dbc.Table(
+            [header, html.Tbody(body_rows)],
+            hover=True,
+            striped=True,
+            responsive=True,
+            className="align-middle mb-0",
+        )
 
     return (
         modal_open,
@@ -647,7 +787,8 @@ def manage_class_profiles(
 
 
 # =============================================================================
-# CALLBACK: ARCHIVE, RESTORE, AND SOFT-DELETE CLASSES
+# CALLBACK: SOFT-DELETE CLASSES
+# (Per-class archive/restore was removed; ending the academic year replaces it.)
 # =============================================================================
 
 @app.callback(
@@ -657,8 +798,6 @@ def manage_class_profiles(
         Output("class_profile_refresh_store", "data"),
     ],
     [
-        Input({"type": "archive_class", "index": ALL}, "n_clicks"),
-        Input({"type": "restore_class", "index": ALL}, "n_clicks"),
         Input({"type": "delete_class", "index": ALL}, "n_clicks"),
         Input("confirm_delete_class", "submit_n_clicks"),
     ],
@@ -668,28 +807,18 @@ def manage_class_profiles(
     ],
     prevent_initial_call=True,
 )
-def manage_class_status(
-    archive_clicks,
-    restore_clicks,
-    delete_clicks,
-    confirm_clicks,
-    pending_delete_id,
-    refresh_value,
-):
+def manage_class_status(delete_clicks, confirm_clicks, pending_delete_id, refresh_value):
     trigger_id = get_triggered_component()
     if trigger_id is None:
         raise PreventUpdate
 
-    # Ignore pattern-matching button insertions where n_clicks is still 0.
-    # Only process an actual click or confirmation.
+    # Ignore buttons that were just rendered with n_clicks = 0.
     triggered = callback_context.triggered
     if not triggered or not triggered[0].get("value"):
         raise PreventUpdate
 
     refresh_value = (refresh_value or 0) + 1
 
-    # User confirmed the delete dialog. Soft-delete the class so enrolment
-    # history remains in the database.
     if trigger_id == "confirm_delete_class":
         if pending_delete_id is None:
             raise PreventUpdate
@@ -697,66 +826,14 @@ def manage_class_status(
         db.modifyDB(
             """
             UPDATE student_class
-            SET class_delete_ind = TRUE,
-                class_archive_ind = FALSE
+            SET class_delete_ind = TRUE
             WHERE class_id = %s
             """,
             [int(pending_delete_id)],
         )
         return False, None, refresh_value
 
-    # Pattern-matching button IDs contain the class ID in their "index".
-    if not isinstance(trigger_id, dict):
-        raise PreventUpdate
-
-    class_id = int(trigger_id["index"])
-    action_type = trigger_id["type"]
-
-    if action_type == "archive_class":
-        db.modifyDB(
-            """
-            UPDATE student_class
-            SET class_archive_ind = TRUE
-            WHERE class_id = %s
-              AND COALESCE(class_delete_ind, FALSE) = FALSE
-            """,
-            [class_id],
-        )
-        return False, None, refresh_value
-
-    if action_type == "restore_class":
-        # Do not restore if another non-deleted class already uses this
-        # section name in the same academic period.
-        sql_conflict = """
-            SELECT other.class_id
-            FROM student_class current_class
-            JOIN student_class other
-              ON other.cycle_id = current_class.cycle_id
-             AND LOWER(BTRIM(other.student_section)) =
-                 LOWER(BTRIM(current_class.student_section))
-             AND other.class_id <> current_class.class_id
-            WHERE current_class.class_id = %s
-              AND COALESCE(other.class_delete_ind, FALSE) = FALSE
-            LIMIT 1
-        """
-        df_conflict = db.getDataFromDB(sql_conflict, [class_id], ["class_id"])
-
-        if df_conflict is not None and not df_conflict.empty:
-            # Leave it archived; the user can resolve the duplicate first.
-            return False, None, refresh_value
-
-        db.modifyDB(
-            """
-            UPDATE student_class
-            SET class_archive_ind = FALSE
-            WHERE class_id = %s
-              AND COALESCE(class_delete_ind, FALSE) = FALSE
-            """,
-            [class_id],
-        )
-        return False, None, refresh_value
-
-    if action_type == "delete_class":
-        return True, class_id, refresh_value - 1
+    if isinstance(trigger_id, dict) and trigger_id.get("type") == "delete_class":
+        return True, int(trigger_id["index"]), refresh_value - 1
 
     raise PreventUpdate

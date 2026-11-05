@@ -1,4 +1,3 @@
-
 from datetime import date
 from functools import lru_cache
 
@@ -15,6 +14,7 @@ from dash.exceptions import PreventUpdate
 
 from app import app
 from apps import dbconnect as db
+from apps.academic_year import age_months_sql
 from apps.class_profiles.class_profiles_management import get_triggered_component
 
 # Get the directory where this Python file is located
@@ -123,28 +123,24 @@ def load_who_reference(sex):
     return reference.dropna(subset=["month"]).set_index("month")
 
 
-def approximate_age_months(age):
+def valid_who_age_months(age_months):
     """
-    Approximate age in months from the existing age-in-years field.
-
-    Because the database currently stores whole years only, use the
-    midpoint of that year. This is provisional until date of birth or
-    age in months is stored.
+    Age in completed months, derived in SQL from the student's birthdate
+    (nothing age-related is stored). The WHO 2007 BMI-for-age reference spans
+    61 through 228 months; students 19 and older use the last row.
     """
-    age_years = numeric(age)
-    if age_years is None or age_years < 5 or age_years > 19:
+    months = numeric(age_months)
+    if months is None or months < 61 or months >= 240:
         return None
-
-    # WHO 2007 BMI-for-age reference spans 61 through 228 months.
-    return min(228, round(age_years * 12 + 6))
+    return min(228, int(months))
 
 
-def calculate_bmi_z_score(bmi, age, sex):
+def calculate_bmi_z_score(bmi, age_months, sex):
     """Calculate BMI-for-age Z-score using the WHO LMS method."""
     if bmi is None or bmi <= 0:
         return None
 
-    age_months = approximate_age_months(age)
+    age_months = valid_who_age_months(age_months)
     if age_months is None or sex not in WHO_FILES:
         return None
 
@@ -194,6 +190,10 @@ layout = html.Div(
         dcc.Store(id="pemp_refresh", data=0),
         dcc.Store(id="pemp_cycle_id", data=None),
         dcc.Store(id="pemp_health_lrn", data=None),
+        dcc.Store(id="pemp_history_refresh", data=0),
+        dcc.Store(id="pemp_pending_delete", data=None),
+        dcc.ConfirmDialog(id="pemp_confirm_delete",
+                          message="Delete this health record? This cannot be undone."),
 
         dbc.Button("← Back to Classes", 
                    id="pemp_back_to_classes", href=BACK_PATH,
@@ -414,7 +414,7 @@ def render_selected_class(pathname, _refresh):
 def load_students(class_id):
     df = db.getDataFromDB(
         """SELECT s.student_lrn, s.student_last_name, s.student_first_name,
-                  s.student_middle_name, s.student_sex::text, s.student_age, pe.enrolment_id,
+                  s.student_middle_name, s.student_sex::text, pe.enrolment_id,
                   pe.priority_level,
                   (SELECT COUNT(*) FROM health_record hr
                     WHERE hr.student_lrn = s.student_lrn) AS health_count,
@@ -430,7 +430,7 @@ def load_students(class_id):
            
            ORDER BY LOWER(BTRIM(s.student_last_name)), LOWER(BTRIM(s.student_first_name))""",
         [class_id], ["student_lrn", "last_name", "first_name", "middle_name",
-                     "sex", "age", "enrolment_id", "priority", "health_count", "latest_status"])
+                     "sex", "enrolment_id", "priority", "health_count", "latest_status"])
     
     if df is None or df.empty:
         return dbc.Alert("No active students are enrolled in this class yet.", color="light")
@@ -446,7 +446,7 @@ def load_students(class_id):
             html.Td(lrn),
             html.Td(full_name(student["last_name"], student["first_name"], student["middle_name"]),
                     className="fw-semibold"),
-            html.Td(clean_text(student["sex"]) or "â€”"),
+            html.Td(clean_text(student["sex"]) or "—"),
             html.Td(clean_text(student["latest_status"]) or ("Assessment available" if has_record else "No record")),
             html.Td(priority),
             html.Td(dbc.Button("View / Add Health Record" if has_record else "Create Health Record",
@@ -460,6 +460,58 @@ def load_students(class_id):
                             html.Th("Health Profile")])),
         html.Tbody(rows),
     ], hover=True, responsive=True, size="sm", className="mb-0 align-middle")
+
+
+def build_history(lrn):
+    """Previous-assessments table (newest first) with a Delete button per row."""
+    hist = db.getDataFromDB(
+        """SELECT record_id, record_date, nutritional_status, risk_status,
+                  height, weight, bmi, z_score
+           FROM health_record WHERE student_lrn = %s
+           ORDER BY record_date DESC NULLS LAST, record_id DESC""",
+        [int(lrn)],
+        ["record_id", "record_date", "nutritional", "risk", "height", "weight", "bmi", "z_score"])
+
+    if hist is None or hist.empty:
+        return dbc.Alert("No previous assessments for this student.", color="light")
+
+    def cell(value):
+        value = clean(value)
+        return value if value is not None else "-"
+
+    rows = [html.Tr([
+        html.Td(str(clean(h["record_date"]) or "-")),
+        html.Td(clean_text(h["nutritional"]) or "-"),
+        html.Td(clean_text(h["risk"]) or "-"),
+        html.Td(cell(h["height"])),
+        html.Td(cell(h["weight"])),
+        html.Td(cell(h["bmi"])),
+        html.Td(cell(h["z_score"])),
+        html.Td(dbc.Button("Delete",
+                           id={"type": "pemp_health_delete", "index": int(h["record_id"])},
+                           color="danger", outline=True, size="sm", n_clicks=0)),
+    ]) for _, h in hist.iterrows()]
+
+    return dbc.Table([
+        html.Thead(html.Tr([html.Th(x) for x in
+                            ["Date", "Nutritional", "Risk", "Height", "Weight", "BMI", "Z-score", ""]])),
+        html.Tbody(rows)], responsive=True, size="sm", bordered=True)
+
+
+def sync_enrolment_priority(lrn, class_id):
+    """Re-derive the class priority from the latest remaining assessment."""
+    latest = db.getDataFromDB(
+        """SELECT z_score FROM health_record WHERE student_lrn = %s
+           ORDER BY record_date DESC NULLS LAST, record_id DESC LIMIT 1""",
+        [int(lrn)], ["z_score"])
+    priority = None
+    if latest is not None and not latest.empty:
+        _, priority, _ = classify_percentile(numeric(latest.iloc[0]["z_score"]))
+    db.modifyDB(
+        """UPDATE program_enrolment SET priority_level = %s
+           WHERE student_lrn = %s AND class_id = %s
+             AND COALESCE(enrolment_status, TRUE) = TRUE""",
+        [priority, int(lrn), int(class_id)])
 
 
 @app.callback(
@@ -488,7 +540,8 @@ def load_students(class_id):
     [
         Input({"type": "pemp_health_open", "index": ALL}, "n_clicks"),
         Input("pemp_health_cancel", "n_clicks"),
-        Input("pemp_health_save", "n_clicks")
+        Input("pemp_health_save", "n_clicks"),
+        Input("pemp_history_refresh", "data")
         ],
 
     
@@ -508,7 +561,7 @@ def load_students(class_id):
     prevent_initial_call=True,
 )
 
-def health_modal(_open, _cancel, _save, pathname, current_lrn, record_date,
+def health_modal(_open, _cancel, _save, _history_refresh, pathname, current_lrn, record_date,
                  height, weight, bmi, nutritional, risk, priority, dietary, allergy):
     
     #print("========== SAVE DEBUG ==========")
@@ -525,6 +578,13 @@ def health_modal(_open, _cancel, _save, pathname, current_lrn, record_date,
     if trigger == "pemp_health_cancel":
         return (False, None, no_update, "", "warning", False,
                 *([no_update] * 13))
+
+    # A record was deleted: redraw only the history table.
+    if trigger == "pemp_history_refresh":
+        if current_lrn is None:
+            raise PreventUpdate
+        return (no_update, no_update, no_update, "Health record deleted.", "success", True,
+                *([no_update] * 12), build_history(current_lrn))
 
     if isinstance(trigger, dict) and trigger.get("type") == "pemp_health_open":
 
@@ -543,41 +603,19 @@ def health_modal(_open, _cancel, _save, pathname, current_lrn, record_date,
         
         student = db.getDataFromDB(
             """SELECT student_last_name, student_first_name, student_middle_name,
-                      student_age, student_sex::text
+                      student_sex::text
                FROM student WHERE student_lrn = %s""",
-            [lrn], ["last_name", "first_name", "middle_name", "age", "sex"])
+            [lrn], ["last_name", "first_name", "middle_name", "sex"])
         
         name = full_name(student.iloc[0]["last_name"], student.iloc[0]["first_name"],
                          student.iloc[0]["middle_name"]) if student is not None and not student.empty else str(lrn)
         
-        hist = db.getDataFromDB(
-    """SELECT record_date, nutritional_status, risk_status, height, weight, bmi, z_score
-       FROM health_record WHERE student_lrn = %s
-       ORDER BY record_date DESC NULLS LAST, record_id DESC""",
-    [lrn], ["record_date", "nutritional", "risk", "height", "weight", "bmi", "z_score"])
-        
-        if hist is None or hist.empty:
-            history = dbc.Alert("No previous assessments for this student.", color="light")
-        else:
-            history_rows = [html.Tr([
-                html.Td(str(clean(h["record_date"]) or "-")),
-                html.Td(clean_text(h["nutritional"]) or "-"),
-                html.Td(clean_text(h["risk"]) or "-"),
-                html.Td(clean(h["height"]) if clean(h["height"]) is not None else "-"),
-                html.Td(clean(h["weight"]) if clean(h["weight"]) is not None else "-"),
-                html.Td(clean(h["bmi"]) if clean(h["bmi"]) is not None else "-"),
-                html.Td(clean(h["z_score"]) if clean(h["z_score"]) is not None else "-"),
-            ]) for _, h in hist.iterrows()]
+        history = build_history(lrn)
 
-            history = dbc.Table([
-                html.Thead(html.Tr([html.Th(x) for x in
-                                    ["Date", "Nutritional", "Risk", "Height", "Weight", "BMI", "Z-score"]])),
-                html.Tbody(history_rows)], responsive=True, size="sm", bordered=True)
-            
         return (True, lrn, f"Health Assessment - {name}", "", "warning", False,
                 date.today().isoformat(), None, None, None, None, None, None,
                 None, None, None, None,
-                "Enter height and weight. BMI-for-age Z-score uses the WHO reference and the percentile boundaries supplied for this project. Age is currently approximated from whole years.",
+                "Enter height and weight. BMI-for-age Z-score uses the WHO reference and the percentile boundaries supplied for this project. Age is calculated from the student's birthdate.",
                 history)
 
     if trigger == "pemp_health_save":
@@ -595,18 +633,23 @@ def health_modal(_open, _cancel, _save, pathname, current_lrn, record_date,
         calculated_bmi = round(w_kg / ((h_cm / 100) ** 2), 2)
 
         student_info = db.getDataFromDB(
-            """SELECT student_age, student_sex::text FROM student WHERE student_lrn = %s""",
-            [int(current_lrn)], ["age", "sex"]
+            f"""SELECT {age_months_sql('student_birthdate')} AS age_months, student_sex::text
+               FROM student WHERE student_lrn = %s""",
+            [int(current_lrn)], ["age_months", "sex"]
         )
         if student_info is None or student_info.empty:
-            return (True, current_lrn, no_update, "Student age and sex could not be retrieved.", "warning", True,
+            return (True, current_lrn, no_update, "Student birthdate and sex could not be retrieved.", "warning", True,
                     *([no_update] * 13))
 
-        student_age = numeric(student_info.iloc[0]["age"])
+        student_age_months = numeric(student_info.iloc[0]["age_months"])
         student_sex = clean_text(student_info.iloc[0]["sex"])
+        if student_age_months is None:
+            return (True, current_lrn, no_update,
+                    "This student has no birthdate on file. Add it in Student Details first; age is calculated from it.",
+                    "warning", True, *([no_update] * 13))
         try:
             calculated_z_score = calculate_bmi_z_score(
-                calculated_bmi, student_age, student_sex
+                calculated_bmi, student_age_months, student_sex
             )
         except (FileNotFoundError, ValueError, OSError) as exc:
             return (True, current_lrn, no_update, str(exc), "danger", True,
@@ -617,7 +660,7 @@ def health_modal(_open, _cancel, _save, pathname, current_lrn, record_date,
         )
         if category is None:
             return (True, current_lrn, no_update,
-                    "A WHO BMI-for-age Z-score could not be calculated. Check the student's age (5–19), sex, and WHO reference files.",
+                    "A WHO BMI-for-age Z-score could not be calculated. Check the student's birthdate (age must be 5–19), sex, and WHO reference files.",
                     "warning", True, *([no_update] * 13))
 
         # Priority is calculated from the percentile, not manually selected.
@@ -644,14 +687,23 @@ def health_modal(_open, _cancel, _save, pathname, current_lrn, record_date,
             
             enrolment_id = int(enrol.iloc[0]["enrolment_id"])
             
-            db.modifyDB(
-                """INSERT INTO health_record
-                (student_lrn, record_date, nutritional_status, risk_status,
-                 dietary_restrictions, allergy, height, weight, bmi, z_score)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                [int(current_lrn), record_date, category, category,
-                 clean_text(dietary), clean_text(allergy), h_cm, w_kg,
-                 calculated_bmi, calculated_z_score])
+            # Guard against double submits: an identical assessment for the
+            # same student and date is not inserted a second time.
+            already = db.getDataFromDB(
+                """SELECT 1 AS found FROM health_record
+                   WHERE student_lrn = %s AND record_date::date = %s::date
+                     AND height = %s AND weight = %s LIMIT 1""",
+                [int(current_lrn), record_date, h_cm, w_kg], ["found"])
+
+            if already is None or already.empty:
+                db.modifyDB(
+                    """INSERT INTO health_record
+                    (student_lrn, record_date, nutritional_status, risk_status,
+                     dietary_restrictions, allergy, height, weight, bmi, z_score)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    [int(current_lrn), record_date, category, category,
+                     clean_text(dietary), clean_text(allergy), h_cm, w_kg,
+                     calculated_bmi, calculated_z_score])
             
             db.modifyDB(
                 "UPDATE program_enrolment SET priority_level = %s WHERE enrolment_id = %s",
@@ -693,31 +745,36 @@ def calculate_bmi(height, weight, current_lrn):
         return None, None, None, None, "Open a student's health record first.", None, None
 
     student_info = db.getDataFromDB(
-        """SELECT student_age, student_sex::text FROM student WHERE student_lrn = %s""",
-        [int(current_lrn)], ["age", "sex"]
+        f"""SELECT {age_months_sql('student_birthdate')} AS age_months, student_sex::text
+               FROM student WHERE student_lrn = %s""",
+        [int(current_lrn)], ["age_months", "sex"]
     )
     if student_info is None or student_info.empty:
-        return None, None, None, None, "Student age and sex could not be retrieved.", None, None
+        return None, None, None, None, "Student birthdate and sex could not be retrieved.", None, None
 
     bmi = round(w_kg / ((h_cm / 100) ** 2), 2)
-    age = numeric(student_info.iloc[0]["age"])
+    age_months = numeric(student_info.iloc[0]["age_months"])
     sex = clean_text(student_info.iloc[0]["sex"])
+    if age_months is None:
+        return (bmi, None, None, None,
+                "This student has no birthdate on file. Add it in Student Details first; age is calculated from it.",
+                None, None)
 
     try:
-        z_score = calculate_bmi_z_score(bmi, age, sex)
+        z_score = calculate_bmi_z_score(bmi, age_months, sex)
     except (FileNotFoundError, ValueError, OSError) as exc:
         return bmi, None, None, None, str(exc), None, None
 
     category, priority, percentile = classify_percentile(z_score)
     if category is None:
         return (bmi, None, None, None,
-                "A BMI-for-age Z-score could not be calculated. Check age, sex, and WHO reference files.",
+                "A BMI-for-age Z-score could not be calculated. Check birthdate, sex, and WHO reference files.",
                 None, None)
 
     explanation = (
         f"BMI: {bmi} kg/m². BMI-for-age Z-score: {z_score}. "
         f"Estimated percentile: P{percentile}. Nutritional status: {category}. "
-        f"Calculated priority: {priority}. Age is approximated from whole years."
+        f"Calculated priority: {priority}. Age is calculated from the birthdate."
     )
     return bmi, category, category, priority, explanation, z_score, percentile
 
@@ -725,11 +782,83 @@ def calculate_bmi(height, weight, current_lrn):
 
 @app.callback(
     Output("pemp_refresh", "data"),
-    Input("pemp_health_save", "n_clicks"),
+    Input("pemp_health_modal", "is_open"),
     State("pemp_refresh", "data"),
     prevent_initial_call=True,
 )
-def refresh_after_health_save(_clicks, refresh):
-    # The save callback closes the modal only after a successful insert. This
-    # refresh is triggered by the save click; harmlessly refreshes after validation too.
+def refresh_after_modal_closes(is_open, refresh):
+    # The save callback closes the modal only AFTER the database write is done,
+    # so refreshing here always sees the new (or deleted) record.
+    if is_open:
+        raise PreventUpdate
     return (refresh or 0) + 1
+
+
+@app.callback(
+    [
+        Output("pemp_confirm_delete", "displayed"),
+        Output("pemp_pending_delete", "data"),
+        Output("pemp_history_refresh", "data"),
+    ],
+    [
+        Input({"type": "pemp_health_delete", "index": ALL}, "n_clicks"),
+        Input("pemp_confirm_delete", "submit_n_clicks"),
+    ],
+    [
+        State("pemp_pending_delete", "data"),
+        State("pemp_health_lrn", "data"),
+        State("url", "pathname"),
+        State("pemp_history_refresh", "data"),
+    ],
+    prevent_initial_call=True,
+)
+def delete_health_record(_delete_clicks, _confirm_clicks, pending_id, current_lrn,
+                         pathname, history_refresh):
+    trigger = get_triggered_component()
+    triggered = callback_context.triggered
+    # Ignore delete buttons that were just (re)rendered with n_clicks = 0.
+    if trigger is None or not triggered or not triggered[0].get("value"):
+        raise PreventUpdate
+
+    if isinstance(trigger, dict) and trigger.get("type") == "pemp_health_delete":
+        return True, int(trigger["index"]), no_update
+
+    if trigger == "pemp_confirm_delete":
+        _, class_id = parse_route(pathname)
+        if pending_id is None or current_lrn is None or class_id is None:
+            raise PreventUpdate
+        db.modifyDB(
+            "DELETE FROM health_record WHERE record_id = %s AND student_lrn = %s",
+            [int(pending_id), int(current_lrn)])
+        sync_enrolment_priority(current_lrn, class_id)
+        return False, None, (history_refresh or 0) + 1
+
+    raise PreventUpdate
+
+
+# Disable "Save" the instant it is clicked (in the browser, no server wait) so a
+# slow save can't be submitted twice. It re-enables when the modal opens/closes
+# or when an error message comes back.
+app.clientside_callback(
+    """
+    function(clicks, isOpen, alertText) {
+        const ctx = window.dash_clientside.callback_context;
+        const prop = ctx.triggered.length ? ctx.triggered[0].prop_id : "";
+        const saving = prop.indexOf("pemp_health_save") === 0;
+        // Safety net: never leave the button disabled if no reply re-enables it.
+        if (saving && window.dash_clientside && window.dash_clientside.set_props) {
+            setTimeout(function () {
+                window.dash_clientside.set_props("pemp_health_save", {disabled: false});
+            }, 4000);
+        }
+        return saving;
+    }
+    """,
+    Output("pemp_health_save", "disabled"),
+    [
+        Input("pemp_health_save", "n_clicks"),
+        Input("pemp_health_modal", "is_open"),
+        Input("pemp_health_alert", "children"),
+    ],
+    prevent_initial_call=True,
+)

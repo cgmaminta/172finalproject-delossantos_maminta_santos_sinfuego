@@ -1,3 +1,5 @@
+from datetime import date
+
 import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import ALL, dcc, html, callback_context, no_update
@@ -7,6 +9,7 @@ from dash.exceptions import PreventUpdate
 from app import app
 from apps import dbconnect as db
 from apps.class_profiles.class_profiles_management import get_triggered_component
+from apps.academic_year import is_year_ended, school_year_from_semester
 
 
 PATH_PREFIX = "/student-details/"
@@ -46,21 +49,40 @@ def clean_text(value):
 
 
 def format_age(value):
+    """Age is derived in SQL from the birthdate; it is never stored."""
     value = clean(value)
-    return f"{float(value):g}" if value is not None else "—"
+    return str(int(value)) if value is not None else "—"
 
 
-def parse_age(value):
-    """Return (age, error). Age is None when left blank."""
+def format_birthdate(value):
+    value = clean(value)
+    if value is None:
+        return "—"
+    return value.strftime("%b %d, %Y") if hasattr(value, "strftime") else str(value)[:10]
+
+
+def birthdate_to_input(value):
+    """Value for a dbc.Input(type='date') (YYYY-MM-DD) or None."""
+    value = clean(value)
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)[:10]
+
+
+def parse_birthdate(value):
+    """Return (date, error). The birthdate is optional (None when blank)."""
     if value is None or str(value).strip() == "":
         return None, None
     try:
-        age = float(value)
-    except (TypeError, ValueError):
-        return None, "Age must be a number."
-    if age < 0 or age > 99.99:
-        return None, "Age must be between 0 and 99.99."
-    return age, None
+        born = date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None, "Birthdate must be a valid date."
+    today = date.today()
+    if born > today:
+        return None, "Birthdate cannot be in the future."
+    if today.year - born.year > 99:
+        return None, "Please check the birthdate; it makes the student over 99."
+    return born, None
 
 
 def full_name(last, first, middle):
@@ -216,15 +238,13 @@ layout = html.Div(
                             [
                                 dbc.Col(
                                     [
-                                        dbc.Label("Age", className="fw-bold"),
+                                        dbc.Label("Birthdate", className="fw-bold"),
                                         dbc.Input(
-                                            id="sd_age",
-                                            type="number",
-                                            min=0,
-                                            max=99.99,
-                                            step="any",
-                                            placeholder="e.g. 6",
+                                            id="sd_birthdate",
+                                            type="date",
+                                            max=date.today().isoformat(),
                                         ),
+                                        dbc.FormText("Age is calculated automatically from the birthdate."),
                                     ],
                                     md=6,
                                 ),
@@ -301,8 +321,7 @@ def load_class_header(pathname):
         raise PreventUpdate
 
     sql = """
-        SELECT sc.grade_level, sc.student_section, pc.semester,
-               t.teacher_name, sc.class_archive_ind
+        SELECT sc.grade_level, sc.student_section, pc.semester, t.teacher_name
         FROM student_class sc
         LEFT JOIN program_cycle pc ON sc.cycle_id = pc.cycle_id
         LEFT JOIN teacher t ON sc.employee_id = t.employee_id
@@ -312,7 +331,7 @@ def load_class_header(pathname):
     df = db.getDataFromDB(
         sql,
         [class_id],
-        ["grade_level", "student_section", "semester", "teacher_name", "archived"],
+        ["grade_level", "student_section", "semester", "teacher_name"],
     )
 
     if df is None or df.empty:
@@ -320,17 +339,15 @@ def load_class_header(pathname):
 
     row = df.iloc[0]
     title = f"Grade {row['grade_level']} - {row['student_section']}"
-    meta = " | ".join(
-        [
-            clean_text(row["semester"]) or "Academic period not specified",
-            f"Teacher: {clean_text(row['teacher_name']) or 'No teacher assigned'}",
-        ]
-    )
-    archived = bool(clean(row["archived"]))
-    if archived:
-        meta += " | Archived (restore the class to add students)"
+    meta = f"Teacher: {clean_text(row['teacher_name']) or 'No teacher assigned'}"
 
-    return title, meta, archived
+    # The page shows no academic year or quarter. The class's year is only used
+    # to stop new enrolments once that academic year has been ended.
+    year_ended = is_year_ended(school_year_from_semester(row["semester"]))
+    if year_ended:
+        meta += " | Academic year ended (students can no longer be added)"
+
+    return title, meta, year_ended
 
 
 # =============================================================================
@@ -359,8 +376,9 @@ def load_student_list(pathname, search, sex_filter, _refresh_save, _refresh_remo
     # Search matches "First Middle Last" and "Last First Middle" orderings.
     sql = """
         SELECT s.student_lrn, s.student_last_name, s.student_first_name,
-               s.student_middle_name, s.student_age, s.student_sex::text,
-               s.student_address, pe.enrolment_id
+               s.student_middle_name, s.student_birthdate,
+               EXTRACT(YEAR FROM AGE(CURRENT_DATE, s.student_birthdate))::int AS student_age,
+               s.student_sex::text, s.student_address, pe.enrolment_id
         FROM program_enrolment pe
         JOIN student s ON pe.student_lrn = s.student_lrn
         WHERE pe.class_id = %s
@@ -386,7 +404,7 @@ def load_student_list(pathname, search, sex_filter, _refresh_save, _refresh_remo
         [class_id, search_text, like_value, like_value, sex_value, sex_value],
         [
             "student_lrn", "last_name", "first_name", "middle_name",
-            "age", "sex", "address", "enrolment_id",
+            "birthdate", "age", "sex", "address", "enrolment_id",
         ],
     )
 
@@ -404,6 +422,7 @@ def load_student_list(pathname, search, sex_filter, _refresh_save, _refresh_remo
                 html.Th("#"),
                 html.Th("LRN"),
                 html.Th("Name"),
+                html.Th("Birthdate"),
                 html.Th("Age"),
                 html.Th("Sex"),
                 html.Th("Address"),
@@ -426,6 +445,7 @@ def load_student_list(pathname, search, sex_filter, _refresh_save, _refresh_remo
                         full_name(row["last_name"], row["first_name"], row["middle_name"]),
                         className="fw-semibold",
                     ),
+                    html.Td(format_birthdate(row["birthdate"])),
                     html.Td(format_age(row["age"])),
                     html.Td(clean_text(row["sex"]) or "—"),
                     html.Td(clean_text(row["address"]) or "—"),
@@ -481,7 +501,7 @@ def load_student_list(pathname, search, sex_filter, _refresh_save, _refresh_remo
         Output("sd_last_name", "value"),
         Output("sd_first_name", "value"),
         Output("sd_middle_name", "value"),
-        Output("sd_age", "value"),
+        Output("sd_birthdate", "value"),
         Output("sd_sex", "value"),
         Output("sd_address", "value"),
         Output("sd_editing_lrn", "data"),
@@ -499,7 +519,7 @@ def load_student_list(pathname, search, sex_filter, _refresh_save, _refresh_remo
         State("sd_last_name", "value"),
         State("sd_first_name", "value"),
         State("sd_middle_name", "value"),
-        State("sd_age", "value"),
+        State("sd_birthdate", "value"),
         State("sd_sex", "value"),
         State("sd_address", "value"),
         State("sd_editing_lrn", "data"),
@@ -510,7 +530,7 @@ def load_student_list(pathname, search, sex_filter, _refresh_save, _refresh_remo
 def manage_student_modal(
     add_clicks, cancel_clicks, save_clicks, edit_clicks,
     pathname, lrn_input, last_name, first_name, middle_name,
-    age, sex, address, editing_lrn, refresh_value,
+    birthdate, sex, address, editing_lrn, refresh_value,
 ):
     class_id = parse_class_id(pathname)
     if class_id is None:
@@ -530,7 +550,7 @@ def manage_student_modal(
     modal_title = no_update
     modal_alert = ("", "warning", False)
     page_alert = (no_update, no_update, no_update)
-    fields = [no_update] * 7   # lrn, last, first, middle, age, sex, address
+    fields = [no_update] * 7   # lrn, last, first, middle, birthdate, sex, address
     editing_output = no_update
     refresh_output = no_update
 
@@ -547,25 +567,24 @@ def manage_student_modal(
         df = db.getDataFromDB(
             """
             SELECT student_last_name, student_first_name, student_middle_name,
-                   student_age, student_sex::text, student_address
+                   student_birthdate, student_sex::text, student_address
             FROM student
             WHERE student_lrn = %s
               AND COALESCE(student_delete_ind, FALSE) = FALSE
             """,
             [lrn],
-            ["last_name", "first_name", "middle_name", "age", "sex", "address"],
+            ["last_name", "first_name", "middle_name", "birthdate", "sex", "address"],
         )
         if df is None or df.empty:
             page_alert = ("This student could not be found.", "warning", True)
         else:
             row = df.iloc[0]
-            age_value = clean(row["age"])
             fields = [
                 str(lrn),
                 clean_text(row["last_name"]),
                 clean_text(row["first_name"]),
                 clean_text(row["middle_name"]),
-                float(age_value) if age_value is not None else None,
+                birthdate_to_input(row["birthdate"]),
                 clean_text(row["sex"]),
                 clean_text(row["address"]),
             ]
@@ -586,7 +605,7 @@ def manage_student_modal(
         middle_value = clean_text(middle_name)
         sex_value = clean_text(sex)
         address_value = clean_text(address)
-        age_value, age_error = parse_age(age)
+        birth_value, birth_error = parse_birthdate(birthdate)
 
         is_new = editing_lrn is None
 
@@ -596,8 +615,8 @@ def manage_student_modal(
         elif not last_value or not first_value:
             modal_alert = ("Please enter the student's last name and first name.", "warning", True)
             modal_open = True
-        elif age_error:
-            modal_alert = (age_error, "warning", True)
+        elif birth_error:
+            modal_alert = (birth_error, "warning", True)
             modal_open = True
         else:
             try:
@@ -627,7 +646,7 @@ def manage_student_modal(
                             student_last_name = %s,
                             student_first_name = %s,
                             student_middle_name = %s,
-                            student_age = %s,
+                            student_birthdate = %s,
                             student_sex = %s,
                             student_address = %s
                         WHERE student_lrn = %s
@@ -635,7 +654,7 @@ def manage_student_modal(
                         """,
                         [
                             new_lrn, last_value, first_value, middle_value,
-                            age_value, sex_value, address_value, old_lrn,
+                            birth_value, sex_value, address_value, old_lrn,
                         ],
                     )
                     page_alert = ("Student updated successfully.", "success", True)
@@ -665,13 +684,13 @@ def manage_student_modal(
                             """
                             INSERT INTO student
                                 (student_lrn, student_last_name, student_first_name,
-                                 student_middle_name, student_age, student_sex,
+                                 student_middle_name, student_birthdate, student_sex,
                                  student_address)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
                             """,
                             [
                                 lrn, last_value, first_value, middle_value,
-                                age_value, sex_value, address_value,
+                                birth_value, sex_value, address_value,
                             ],
                         )
 
