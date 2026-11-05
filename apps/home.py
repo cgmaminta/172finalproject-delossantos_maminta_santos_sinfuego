@@ -1,3 +1,4 @@
+
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, html
 from dash.exceptions import PreventUpdate
@@ -63,7 +64,9 @@ layout = html.Div(
 @app.callback(
     Output('home_title', 'children'),
     Input('url', 'pathname'),
-    State('currentuserid', 'data'),
+    # >>> CHANGED: was State("currentuserid", "data"). It is now an Input so the
+    # greeting re-runs when the user id changes (for example right after login).
+    Input('currentuserid', 'data'),
 )
 def home_greeting(pathname, userid):
     if pathname not in ('/', '/home'):
@@ -77,6 +80,10 @@ def home_greeting(pathname, userid):
         if not df.empty:
             name = df['user_name'][0]
 
+    # >>> ADDED: debug line. Delete it once the greeting works.
+    print("home_greeting:", pathname, userid, name)
+
     if name:
-        return ['Welcome, ', html.Span(name, className='hero-accent'), ' !']
+        # >>> CHANGED: removed the space before "!" so it reads "Welcome, Adam!"
+        return ['Welcome, ', html.Span(name, className='hero-accent'), '!']
     return 'Welcome!'
