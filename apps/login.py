@@ -2,8 +2,7 @@ import hashlib
 
 
 import dash_bootstrap_components as dbc
-# >>> CHANGED: added no_update
-from dash import dcc, html, callback_context, no_update
+from dash import dcc, html, callback_context
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
@@ -18,7 +17,6 @@ layout = html.Div(
             html.H2('Welcome back!', className='login-title'),
             html.P('Log in to your account', className='login-subtitle'),
 
-            # Login error message: hidden by default, shown by the login_user callback below
             dbc.Alert(
                 'Incorrect username or password. Please check and try again.',
                 color='danger',
@@ -84,64 +82,90 @@ def login_toggle_password(n_clicks):
         return 'text', 'bi bi-eye-slash'
     return 'password', 'bi bi-eye'
 
-
 @app.callback(
     [
         Output('login_alert', 'is_open'),
         Output('currentuserid', 'data'),
-        # >>> ADDED: lets this callback send the user to the home page after login
-        Output('url', 'pathname', allow_duplicate=True),
     ],
     [
-        Input('login_loginbtn', 'n_clicks'),
+        Input('login_loginbtn', 'n_clicks'), # begin login query via button click
+        Input('sessionlogout', 'modified_timestamp'), # reset session userid to -1 if logged out
     ],
     [
         State('login_username', 'value'),
-        State('login_password', 'value'),
-        # >>> CHANGED: State('currentuserid') removed, it isn't needed anymore
-    ],
-    prevent_initial_call=True,
+        State('login_password', 'value'),  
+        State('sessionlogout', 'data'),
+        State('currentuserid', 'data'),
+        State('url', 'pathname'),
+    ]
 )
-# >>> CHANGED: removed the currentuserid parameter to match the removed State
-def login_user(loginbtn, username, password):
+def loginprocess(loginbtn, sessionlogout_time,
+                 
+                 username, password,
+                 sessionlogout, currentuserid,
+                 pathname):
+   
     ctx = callback_context
-    if not ctx.triggered or ctx.triggered[0]['prop_id'].split('.')[0] != 'login_loginbtn':
+   
+    if ctx.triggered:
+        openalert = False
+        eventid = ctx.triggered[0]['prop_id'].split('.')[0]
+    else:
         raise PreventUpdate
+   
+   
+    if eventid == 'login_loginbtn': # trigger for login process
+   
+        if loginbtn and username and password:
+            sql = """SELECT user_id
+            FROM users
+            WHERE
+                user_name = %s AND
+                user_password = %s AND
+                NOT user_delete_ind"""
+           
+            # we match the encrypted input to the encrypted password in the db
+            encrypt_string = lambda string: hashlib.sha256(string.encode('utf-8')).hexdigest()
+           
+            values = [username, encrypt_string(password)]
+            cols = ['userid']
+            df = db.getDataFromDB(sql, values, cols)
+           
+            if df.shape[0]: # if query returns rows
+                currentuserid = df['userid'][0]
+            else:
+                currentuserid = -1
+                openalert = True
+               
+    elif eventid == 'sessionlogout' and pathname == '/logout': # reset the userid if logged out
+        currentuserid = -1
+       
+    else:
+        raise PreventUpdate
+   
+    return [openalert, currentuserid]
 
-    # >>> CHANGED: no_update for the user id and url, so index.py doesn't
-    # re-render the login page and wipe the error message
-    if not username or not password:
-        return True, no_update, no_update
-
-    encrypted_password = hashlib.sha256(password.encode('utf-8')).hexdigest()
-
-    sql = """
-        SELECT user_id
-        FROM users
-        WHERE user_name = %s
-          AND user_password = %s
-          AND NOT user_delete_ind
-    """
-    values = [username, encrypted_password]
-    cols = ['userid']
-    df = db.getDataFromDB(sql, values, cols)
-
-    if df.shape[0]:
-        # >>> CHANGED: success hides the error, stores the user id (as a plain int),
-        # and redirects to the home page
-        return False, int(df['userid'][0]), '/home'
-
-    # >>> CHANGED: wrong username or password, so show the error and leave everything else alone
-    return True, no_update, no_update
 
 
-# Optional: hides the error again once the user starts typing.
-# Needs Dash 2.9 or newer for allow_duplicate. Delete this block if you don't want it.
+
 @app.callback(
-    Output('login_alert', 'is_open', allow_duplicate=True),
-    Input('login_username', 'value'),
-    Input('login_password', 'value'),
-    prevent_initial_call=True,
+    [
+        Output('url', 'pathname'),
+    ],
+    [
+        Input('currentuserid', 'modified_timestamp'),
+    ],
+    [
+        State('currentuserid', 'data'),
+    ]
 )
-def login_hide_alert(_u, _p):
-    return False
+def routelogin(logintime, userid):
+    ctx = callback_context
+    if ctx.triggered:
+        if userid > 0:
+            url = '/home'
+        else:
+            url = '/'
+    else:
+        raise PreventUpdate
+    return [url]

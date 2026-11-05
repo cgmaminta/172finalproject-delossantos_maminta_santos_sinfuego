@@ -2,8 +2,7 @@ import webbrowser
 
 import dash
 import dash_bootstrap_components as dbc
-# >>> CHANGED: added no_update
-from dash import dcc, html, Input, Output, State, no_update
+from dash import dcc, html, Input, Output, State
 from dash.exceptions import PreventUpdate
 
 from app import app
@@ -45,23 +44,12 @@ app.layout = html.Div(
 
 
 @app.callback(
-    [
-        Output("page_content", "children"),
-        Output("sessionlogout", "data"),
-        Output("navbar_div", "className"),
-        # >>> ADDED: displaypage now also resets the user id on /logout
-        Output("currentuserid", "data", allow_duplicate=True),
-    ],
-    [
-        Input("url", "pathname"),
-        # Re-render the page whenever the logged-in user changes (login/logout)
-        Input("currentuserid", "data"),
-    ],
-    [
-        State("sessionlogout", "data"),
-    ],
-    # >>> ADDED: required because currentuserid is also written by login.py
-    prevent_initial_call="initial_duplicate",
+    Output("page_content", "children"),
+    Output("sessionlogout", "data"),
+    Output("navbar_div", "className"),
+    Input("url", "pathname"),
+    Input("currentuserid", "data"),
+    State("sessionlogout", "data"),
 )
 def displaypage(pathname, userid, sessionlogout):
     ctx = dash.callback_context
@@ -95,11 +83,10 @@ def displaypage(pathname, userid, sessionlogout):
         elif pathname == "/reports/report":
             returnlayout = report.layout
 
-        # Program Enrolment Management main page
+        # School health records
         elif pathname == "/school_health_records/health_records_management":
             returnlayout = health_records_management.layout
 
-        # Example: /program_enrolment/program_enrolment_management_profile/1
         elif pathname and pathname.startswith(
             "/school_health_records/health_records_management_profile/"
         ):
@@ -149,15 +136,7 @@ def displaypage(pathname, userid, sessionlogout):
     # Hide the navbar when logged out.
     navbar_classname = "d-none" if sessionlogout else ""
 
-    # >>> ADDED: on /logout, clear the stored user id; otherwise leave it alone
-    new_userid = -1 if pathname == "/logout" else no_update
-
-    # >>> CHANGED: returns 4 values now (added new_userid)
-    return [returnlayout, sessionlogout, navbar_classname, new_userid]
-
-
-# >>> REMOVED: the old reset_user_on_logout callback is gone,
-# since displaypage now does the reset itself.
+    return [returnlayout, sessionlogout, navbar_classname]
 
 
 if __name__ == "__main__":

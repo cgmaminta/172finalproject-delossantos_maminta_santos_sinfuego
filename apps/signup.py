@@ -14,9 +14,6 @@ layout = html.Div(
             html.H2('Create your account', className='login-title'),
             html.P('Set up your account', className='login-subtitle'),
 
-            # >>> CHANGED: the message is no longer hard-coded in the layout.
-            # The saveuser callback now sets the text (children), so this alert
-            # can show either "supply a username and password" or "username taken".
             dbc.Alert(
                 'Please supply a username and password.',
                 color='danger',
@@ -30,7 +27,6 @@ layout = html.Div(
                 type='text',
                 id='signup_username',
                 placeholder='Enter a username',
-                # >>> ADDED: users.user_name is VARCHAR(32), so longer names would fail the insert
                 maxLength=32,
                 className='mb-3',
             ),
@@ -70,7 +66,13 @@ layout = html.Div(
                         className='login-eye',
                     ),
                 ],
-                className='mb-4',
+                className='mb-2',
+            ),
+
+            html.Div(
+                id='signup_match_msg',
+                style={'color': '#9a4f44', 'fontSize': '0.9rem',
+                       'marginBottom': '1rem'},
             ),
 
             dbc.Button('Sign up', id='singup_signupbtn', color='primary', className='w-100 mb-3'),
@@ -127,52 +129,52 @@ def signup_toggle_confirm(n_clicks):
         return 'text', 'bi bi-eye-slash'
     return 'password', 'bi bi-eye'
 
-# disable the signup button if passwords do not match
+
+# Disable the Sign up button and show a message while the passwords differ
 @app.callback(
-    [
-        Output('singup_signupbtn', 'disabled'),
-    ],
-    [
-        Input('signup_password', 'value'),
-        Input('signup_passwordconf', 'value'),
-    ]
+    Output('singup_signupbtn', 'disabled'),
+    Output('signup_match_msg', 'children'),
+    Input('signup_password', 'value'),
+    Input('signup_passwordconf', 'value'),
 )
 def deactivatesignup(password, passwordconf):
-
-    # enable button if password exists and passwordconf exists
-    #  and password = passwordconf
-    enablebtn = password and passwordconf and password == passwordconf
-
-    return [not enablebtn]
+    # Don't show anything until the user has started typing the confirmation
+    if not passwordconf:
+        return True, ''
+    if password != passwordconf:
+        return True, 'Passwords do not match.'
+    return not password, ''
 
 
 # To save the user
 @app.callback(
     [
         Output('signup_alert', 'is_open'),
-        # >>> ADDED: lets the callback change the alert text depending on the error
         Output('signup_alert', 'children'),
-        Output('signup_modal', 'is_open')
+        Output('signup_modal', 'is_open'),
     ],
     [
         Input('singup_signupbtn', 'n_clicks')
     ],
     [
         State('signup_username', 'value'),
-        State('signup_password', 'value')
+        State('signup_password', 'value'),
+        State('signup_passwordconf', 'value'),
     ]
 )
-def saveuser(loginbtn, username, password):
-    # >>> CHANGED: now returns 3 values (alert open, alert text, modal open)
+def saveuser(loginbtn, username, password, passwordconf):
     if not loginbtn:
         raise PreventUpdate
 
     # Missing username or password
     if not (username and password):
-        # >>> CHANGED: the original message is now returned here instead of being fixed in the layout
         return True, 'Please supply a username and password.', False
 
-    # >>> ADDED: check if the username already exists.
+    # Passwords must match (the button should already prevent this)
+    if password != passwordconf:
+        return True, 'Passwords do not match.', False
+
+    # Check if the username already exists.
     # No "NOT user_delete_ind" filter on purpose: the UNIQUE constraint on
     # user_name also applies to soft-deleted users, so their names are still taken.
     check_sql = """
@@ -183,22 +185,18 @@ def saveuser(loginbtn, username, password):
     existing = db.getDataFromDB(check_sql, [username], ['userid'])
 
     if existing.shape[0]:
-        # >>> ADDED: username already taken, so show the error and do NOT insert
         return True, 'That username is already taken. Please choose a different one.', False
 
     sql = """INSERT INTO users (user_name, user_password)
     VALUES (%s, %s)"""
 
-    # This lambda fcn encrypts the password before saving it
-    # for security purposes, not even database admins should see
-    # user passwords
+    # Encrypt the password before saving it, so the plain text is never stored
     encrypt_string = lambda string: hashlib.sha256(string.encode('utf-8')).hexdigest()
 
     values = [username, encrypt_string(password)]
 
-    # >>> ADDED: safety net. If two people sign up with the same name at nearly
-    # the same time, the database's UNIQUE constraint rejects the second insert.
-    # This catches that instead of crashing the callback.
+    # If two people register the same name at nearly the same time, the
+    # UNIQUE constraint rejects the second insert. Show the same message.
     try:
         db.modifyDB(sql, values)
     except Exception:
