@@ -1,6 +1,3 @@
-
-from datetime import date
-import re
 import pandas as pd
 import dash_bootstrap_components as dbc
 from dash import dcc, html
@@ -9,10 +6,15 @@ from dash.exceptions import PreventUpdate
 
 from app import app
 from apps import dbconnect as db
+from apps.academic_year import (
+    QUARTERS,
+    ensure_quarter_cycles,
+    get_current_school_year,
+    get_school_year_options,
+)
 
 PAGE_PATH = "/school_health_records/health_records_management"
 PROFILE_PATH = "/school_health_records/health_records_management_profile"
-QUARTERS = ["1st Quarter", "2nd Quarter", "3rd Quarter", "4th Quarter"]
 
 
 def clean_text(value):
@@ -25,53 +27,6 @@ def clean_text(value):
         pass
     value = str(value).strip()
     return value or None
-
-
-def current_school_year():
-    """Assumes the Philippine school-year cycle begins in June."""
-    today = date.today()
-    start_year = today.year if today.month >= 6 else today.year - 1
-    return f"{start_year}-{start_year + 1}"
-
-
-def school_year_from_label(label):
-    """Extract 2026-2027 from a legacy semester value."""
-    value = clean_text(label) or ""
-    match = re.search(r"(20\d{2}\s*-\s*20\d{2})", value)
-    return re.sub(r"\s+", "", match.group(1)) if match else None
-
-
-def get_school_year_options():
-
-    today = date.today()
-    start_year = today.year if today.month >= 6 else today.year - 1
-
-    years = [
-        f"{start_year + i}-{start_year + i + 1}"
-        for i in range(5)
-    ]
-
-    return [
-        {"label": year, "value": year}
-        for year in years
-    ]
-
-
-def ensure_quarter_cycles(school_year):
-    """Create missing quarter rows; preserve existing cycle IDs and class links."""
-    for quarter in QUARTERS:
-        label = f"{school_year} - {quarter}"
-        existing = db.getDataFromDB(
-            """SELECT cycle_id FROM program_cycle
-               WHERE LOWER(BTRIM(semester)) = LOWER(BTRIM(%s))
-               LIMIT 1""",
-            [label], ["cycle_id"]
-        )
-        if existing is None or existing.empty:
-            db.modifyDB(
-                "INSERT INTO program_cycle (semester) VALUES (%s)",
-                [label]
-            )
 
 
 layout = html.Div([
@@ -95,11 +50,7 @@ layout = html.Div([
                 style={"maxWidth": "260px"}
             )
         ], width="auto"),
-        dbc.Col(
-            html.Div(id="pem_current_cycle", className="text-muted fw-semibold text-end"),
-            className="d-flex align-items-end justify-content-end"
-        )
-    ], className="mb-3 align-items-end justify-content-between"),
+    ], className="mb-3 align-items-end"),
 
     dbc.Alert([
         html.Strong("Select a quarter"),
@@ -115,7 +66,6 @@ layout = html.Div([
         Output("pem_school_year", "options"),
         Output("pem_school_year", "value"),
         Output("pem_cycle_list", "children"),
-        Output("pem_current_cycle", "children"),
         Output("pem_page_alert", "children"),
         Output("pem_page_alert", "color"),
         Output("pem_page_alert", "is_open"),
@@ -134,11 +84,11 @@ def render_quarters(pathname, selected_year, _refresh):
         raise PreventUpdate
 
     try:
+        # Academic years now come from the academic_year table (the Class
+        # Profiles page's "End Academic Year" button advances the current one).
         options = get_school_year_options()
         valid_years = [item["value"] for item in options]
-        year = selected_year if selected_year in valid_years else current_school_year()
-        if year not in valid_years:
-            options.insert(0, {"label": year, "value": year})
+        year = selected_year if selected_year in valid_years else get_current_school_year()
 
         ensure_quarter_cycles(year)
 
@@ -201,11 +151,11 @@ def render_quarters(pathname, selected_year, _refresh):
 
         return (
             options, year, dbc.Row(cards),
-            f"School Year: {year}", "", "success", False
+            "", "success", False
         )
     except Exception as exc:
         return (
             get_school_year_options(), selected_year, dbc.Alert(
                 f"Unable to load quarters: {exc}", color="danger"
-            ), "", f"Unable to load school-year quarters: {exc}", "danger", True
+            ), f"Unable to load school-year quarters: {exc}", "danger", True
         )
