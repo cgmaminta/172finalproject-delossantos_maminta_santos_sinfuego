@@ -17,6 +17,7 @@ layout = html.Div(
             html.H2('Welcome back!', className='login-title'),
             html.P('Log in to your account', className='login-subtitle'),
 
+            # >>> LOGIN ERROR MESSAGE: hidden by default, shown by the login_user callback below
             dbc.Alert(
                 'Incorrect username or password. Please check and try again.',
                 color='danger',
@@ -82,91 +83,61 @@ def login_toggle_password(n_clicks):
         return 'text', 'bi bi-eye-slash'
     return 'password', 'bi bi-eye'
 
+
+# >>> ADDED: the full login callback. It outputs to login_alert so the error can show.
 @app.callback(
     [
         Output('login_alert', 'is_open'),
         Output('currentuserid', 'data'),
     ],
     [
-        Input('login_loginbtn', 'n_clicks'), # begin login query via button click
-        Input('sessionlogout', 'modified_timestamp'), # reset session userid to -1 if logged out
+        Input('login_loginbtn', 'n_clicks'),
     ],
     [
         State('login_username', 'value'),
-        State('login_password', 'value'),  
-        State('sessionlogout', 'data'),
+        State('login_password', 'value'),
         State('currentuserid', 'data'),
-        State('url', 'pathname'),
-    ]
+    ],
+    prevent_initial_call=True,
 )
-def loginprocess(loginbtn, sessionlogout_time,
-                 
-                 username, password,
-                 sessionlogout, currentuserid,
-                 pathname):
-   
+def login_user(loginbtn, username, password, currentuserid):
     ctx = callback_context
-   
-    if ctx.triggered:
-        openalert = False
-        eventid = ctx.triggered[0]['prop_id'].split('.')[0]
-    else:
+    if not ctx.triggered or ctx.triggered[0]['prop_id'].split('.')[0] != 'login_loginbtn':
         raise PreventUpdate
-   
-   
-    if eventid == 'login_loginbtn': # trigger for login process
-   
-        if loginbtn and username and password:
-            sql = """SELECT user_id
-            FROM users
-            WHERE
-                user_name = %s AND
-                user_password = %s AND
-                NOT user_delete_ind"""
-           
-            # we match the encrypted input to the encrypted password in the db
-            encrypt_string = lambda string: hashlib.sha256(string.encode('utf-8')).hexdigest()
-           
-            values = [username, encrypt_string(password)]
-            cols = ['userid']
-            df = db.getDataFromDB(sql, values, cols)
-           
-            if df.shape[0]: # if query returns rows
-                currentuserid = df['userid'][0]
-            else:
-                currentuserid = -1
-                openalert = True
-               
-    elif eventid == 'sessionlogout' and pathname == '/logout': # reset the userid if logged out
-        currentuserid = -1
-       
-    else:
-        raise PreventUpdate
-   
-    return [openalert, currentuserid]
+
+    # >>> ADDED: empty fields count as a failed login, so show the error
+    if not username or not password:
+        return True, currentuserid
+
+    encrypted_password = hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+    sql = """
+        SELECT user_id
+        FROM users
+        WHERE user_name = %s
+          AND user_password = %s
+          AND NOT user_delete_ind
+    """
+    values = [username, encrypted_password]
+    cols = ['userid']
+    df = db.querydatafromdatabase(sql, values, cols)
+
+    if df.shape[0]:
+        # >>> ADDED: success hides the error and stores the user id
+        # >>> CHANGED: wrapped in int() so a NumPy integer doesn't break dcc.Store
+        return False, int(df['userid'][0])
+
+    # >>> ADDED: wrong username or password, so show the error and keep the user id as is
+    return True, currentuserid
 
 
-
-
+# >>> ADDED (optional): hides the error again once the user starts typing.
+# Needs Dash 2.9 or newer for allow_duplicate. Delete this block if you don't want it.
 @app.callback(
-    [
-        Output('url', 'pathname'),
-    ],
-    [
-        Input('currentuserid', 'modified_timestamp'),
-    ],
-    [
-        State('currentuserid', 'data'),
-    ]
+    Output('login_alert', 'is_open', allow_duplicate=True),
+    Input('login_username', 'value'),
+    Input('login_password', 'value'),
+    prevent_initial_call=True,
 )
-def routelogin(logintime, userid):
-    ctx = callback_context
-    if ctx.triggered:
-        if userid > 0:
-            url = '/home'
-        else:
-            url = '/'
-    else:
-        raise PreventUpdate
-    return [url]
-
+def login_hide_alert(_u, _p):
+    return False
